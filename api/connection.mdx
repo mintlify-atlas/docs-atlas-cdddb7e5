@@ -109,3 +109,31 @@ with engine.begin() as connection:
 ### Usage notes
 
 This is a lightweight wrapper around SQLAlchemy's `create_engine()`. Use it to create engines for database operations throughout the application.
+
+## is_connected
+
+Check if the system has an active internet connection before attempting sync operations.
+
+```python
+from app.check_connection import is_connected
+
+if is_connected():
+    print("Internet connection available")
+    # Proceed with sync
+else:
+    print("No internet connection - sync aborted")
+```
+
+<ResponseField name="connected" type="bool">
+  Returns `True` if an internet connection is available, `False` otherwise
+</ResponseField>
+
+### How it works
+
+The function attempts to connect to `https://www.google.com/` with a 5-second timeout:
+- Returns `True` if the request succeeds with status code 200
+- Returns `False` if a `ConnectionError` occurs
+
+<Note>
+  This function is called by `sync_data()` before attempting to sync changes to the Digible platform. If no connection is detected, the sync operation is aborted.
+</Note>

@@ -1,0 +1,89 @@
+{
+  "projectType": "saas",
+  "projectName": "shopMaster",
+  "projectDescription": "Desktop application that synchronizes local SQL Server product databases with Digible's cloud platform",
+  "theme": "willow",
+  "primaryColor": "#2563eb",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/database-setup",
+              "configuration/digible-account",
+              "configuration/sync-settings"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/automatic-sync",
+              "features/manual-sync",
+              "features/product-upload",
+              "features/change-tracking"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/sql-server-connection",
+              "guides/troubleshooting",
+              "guides/best-practices"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Functions",
+            "pages": [
+              "api/connection",
+              "api/sync",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "api/models",
+              "api/triggers"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Automatic bi-directional sync between local SQL Server and Digible cloud",
+    "Real-time change tracking using database triggers",
+    "Desktop GUI for easy configuration and monitoring",
+    "Batch product upload with configurable batch sizes",
+    "Support for Windows Authentication and SQL Server authentication",
+    "Scheduled sync tasks with manual sync override"
+  ],
+  "publicApiSurface": [
+    "sync_data(db_url) - Main synchronization function",
+    "digible_connect(username, password) - Authenticate with Digible API",
+    "createConnectionString(server_name, database_name, username, password, security) - Generate SQL Server connection string",
+    "create_change_log_and_triggers(db_url) - Setup change tracking infrastructure",
+    "sendBatchContent() - Upload all products in batches",
+    "test_connectionString(db_url) - Test database connection",
+    "uploadInsertedContent(product) - Upload single product",
+    "updateProduct(product) - Update existing product"
+  ]
+}

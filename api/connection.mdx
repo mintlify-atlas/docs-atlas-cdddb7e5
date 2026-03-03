@@ -1,0 +1,111 @@
+---
+title: Database connection
+description: Connect to SQL Server databases and create SQLAlchemy engines
+---
+
+The connection module provides functions to create and test SQL Server database connections using SQLAlchemy.
+
+## createConnectionString
+
+Create a connection string for SQL Server databases with support for both password and Windows authentication.
+
+```python
+from app.helper import createConnectionString
+
+connection_string = createConnectionString(
+    server_name="localhost",
+    database_name="ProductDB",
+    username="admin",
+    password="secret123",
+    security="Password"
+)
+```
+
+<ParamField path="server_name" type="str" required>
+  The SQL Server instance name or address
+</ParamField>
+
+<ParamField path="database_name" type="str" required>
+  The name of the database to connect to
+</ParamField>
+
+<ParamField path="username" type="str" required>
+  The username for authentication (ignored when using Windows authentication)
+</ParamField>
+
+<ParamField path="password" type="str" required>
+  The password for authentication (ignored when using Windows authentication)
+</ParamField>
+
+<ParamField path="security" type="str" required>
+  Authentication method. Use "Password" for SQL Server authentication or any other value for Windows authentication
+</ParamField>
+
+<ResponseField name="connection_string" type="str">
+  A SQLAlchemy connection string formatted for SQL Server with ODBC Driver 17
+</ResponseField>
+
+### Implementation details
+
+The function returns different connection string formats based on the security parameter:
+
+- **Password authentication**: `mssql+pyodbc://{username}:{password}@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server`
+- **Windows authentication**: `mssql+pyodbc://:@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=yes`
+
+## test_connectionString
+
+Test a database connection string by executing a simple query.
+
+```python
+from app.helper import test_connectionString
+
+db_url = "mssql+pyodbc://user:pass@localhost/ProductDB?driver=ODBC+Driver+17+for+SQL+Server"
+result = test_connectionString(db_url)
+
+if result == "Connection Successful":
+    print("Database is accessible")
+else:
+    print(f"Connection failed: {result}")
+```
+
+<ParamField path="db_url" type="str" required>
+  A SQLAlchemy database URL to test
+</ParamField>
+
+<ResponseField name="result" type="str">
+  Returns "Connection Successful" if the connection works, or an error message string if it fails
+</ResponseField>
+
+### How it works
+
+The function:
+1. Creates a SQLAlchemy engine from the provided URL
+2. Opens a connection and executes `SELECT 1`
+3. Returns "Connection Successful" on success
+4. Returns the exception message as a string on failure
+
+## get_engine
+
+Create a SQLAlchemy engine from a database URL.
+
+```python
+from app.helper import get_engine
+
+db_url = "mssql+pyodbc://user:pass@localhost/ProductDB?driver=ODBC+Driver+17+for+SQL+Server"
+engine = get_engine(db_url)
+
+with engine.begin() as connection:
+    result = connection.execute(text("SELECT * FROM Products"))
+```
+
+<ParamField path="db_url" type="str" required>
+  A SQLAlchemy database URL
+</ParamField>
+
+<ResponseField name="engine" type="sqlalchemy.engine.Engine">
+  A SQLAlchemy Engine instance for executing database operations
+</ResponseField>
+
+### Usage notes
+
+This is a lightweight wrapper around SQLAlchemy's `create_engine()`. Use it to create engines for database operations throughout the application.

@@ -1,0 +1,121 @@
+---
+title: Installation
+description: Install shopMaster on your Windows machine to start syncing products
+---
+
+## System requirements
+
+Before installing shopMaster, ensure your system meets these requirements:
+
+- **Operating System**: Windows 10 or later
+- **Database**: SQL Server (any version with ODBC support)
+- **ODBC Driver**: ODBC Driver 17 for SQL Server
+- **Python**: Python 3.8 or later (if running from source)
+- **Internet**: Stable internet connection for API communication
+
+<Warning>
+  shopMaster requires ODBC Driver 17 for SQL Server to connect to your database. Make sure this is installed before proceeding.
+</Warning>
+
+## Install ODBC Driver 17
+
+If you don't already have ODBC Driver 17 for SQL Server installed:
+
+<Steps>
+  <Step title="Download the driver">
+    Visit the [Microsoft Download Center](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server) and download ODBC Driver 17 for SQL Server.
+  </Step>
+  
+  <Step title="Run the installer">
+    Double-click the downloaded `.msi` file and follow the installation wizard.
+  </Step>
+  
+  <Step title="Verify installation">
+    Open **ODBC Data Sources (64-bit)** from the Windows Start menu and verify that "ODBC Driver 17 for SQL Server" appears in the Drivers tab.
+  </Step>
+</Steps>
+
+## Install shopMaster
+
+### Option 1: Windows executable (recommended)
+
+The easiest way to install shopMaster is using the pre-built Windows executable.
+
+<Steps>
+  <Step title="Download shopMaster">
+    Download the latest `shopMaster.exe` from your Digible account or the provided distribution link.
+  </Step>
+  
+  <Step title="Run the executable">
+    Double-click `shopMaster.exe` to launch the application. No installation required - it's a standalone executable.
+  </Step>
+  
+  <Step title="Create a shortcut (optional)">
+    Right-click `shopMaster.exe`, select **Create shortcut**, and move the shortcut to your Desktop or Start Menu for easy access.
+  </Step>
+</Steps>
+
+<Info>
+  The executable includes all necessary Python libraries and dependencies. You don't need to install Python separately.
+</Info>
+
+### Option 2: Run from source
+
+If you prefer to run shopMaster from source code, follow these steps.
+
+<Steps>
+  <Step title="Install Python">
+    Download and install Python 3.8 or later from [python.org](https://www.python.org/downloads/). Make sure to check "Add Python to PATH" during installation.
+  </Step>
+  
+  <Step title="Download the source code">
+    Clone or download the shopMaster source code to your local machine.
+  </Step>
+  
+  <Step title="Install dependencies">
+    Open Command Prompt in the source directory and install the required packages:
+    
+    ```bash
+    pip install -r requirements.txt
+    ```
+    
+    The key dependencies include:
+    - `pyodbc` - SQL Server database connectivity
+    - `sqlalchemy` - ORM and database operations
+    - `requests` - API communication with Digible
+    - `schedule` - Automated sync scheduling
+    - `tkinter` - Desktop GUI (included with Python)
+  </Step>
+  
+  <Step title="Run shopMaster">
+    Launch the application:
+    
+    ```bash
+    python main.py
+    ```
+  </Step>
+</Steps>
+
+## Verify installation
+
+After launching shopMaster, you should see the main application window with:
+
+- A **Home** tab with sync controls (Start Sync, Sync Now, Stop Sync)
+- A **Settings** tab for database and Digible account configuration
+- A dark-themed interface with the Digible logo
+
+<Info>
+  On first launch, shopMaster creates a `.env` file in the application directory to store your configuration settings.
+</Info>
+
+## Next steps
+
+Now that shopMaster is installed, you're ready to configure your first sync.
+
+<Card
+  title="Quick start guide"
+  icon="rocket"
+  href="/quickstart"
+>
+  Follow our quick start guide to configure your database connection and sync your first products
+</Card>

@@ -1,0 +1,107 @@
+---
+title: Welcome to shopMaster
+description: Seamlessly synchronize your local SQL Server product database with Digible's cloud platform
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="shopMaster Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="shopMaster Hero Dark"
+/>
+
+## What is shopMaster?
+
+shopMaster is a Windows desktop application that bridges your local SQL Server product database with Digible's cloud platform. Built with Python and featuring an intuitive GUI, shopMaster automatically tracks changes in your product catalog and syncs them in real-time to the cloud.
+
+Whether you're managing a single store or multiple locations, shopMaster eliminates the manual work of keeping your online and offline product data in sync. Set it up once, and let it run in the background while you focus on your business.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card
+    title="Automatic bi-directional sync"
+    icon="arrows-rotate"
+  >
+    Changes to your local database are automatically detected and synced to Digible's cloud platform every 2 minutes.
+  </Card>
+  <Card
+    title="Real-time change tracking"
+    icon="database"
+  >
+    Database triggers monitor INSERT, UPDATE, and DELETE operations on your product table, ensuring no changes are missed.
+  </Card>
+  <Card
+    title="Easy configuration"
+    icon="sliders"
+  >
+    Desktop GUI lets you configure database connections, test connectivity, and manage sync settings without touching code.
+  </Card>
+  <Card
+    title="Batch uploads"
+    icon="cloud-arrow-up"
+  >
+    Upload your entire product catalog in configurable batches of up to 200 products at a time for efficient initial setup.
+  </Card>
+  <Card
+    title="Flexible authentication"
+    icon="shield-halved"
+  >
+    Supports both Windows Authentication and SQL Server authentication for seamless integration with your security setup.
+  </Card>
+  <Card
+    title="Manual sync override"
+    icon="hand-pointer"
+  >
+    Need to sync immediately? Trigger a manual sync anytime from the desktop interface.
+  </Card>
+</CardGroup>
+
+## How it works
+
+shopMaster uses a three-step approach to keep your data synchronized:
+
+1. **Track** - Database triggers automatically log changes to a `ChangeLog` table whenever products are inserted, updated, or deleted
+2. **Sync** - Every 2 minutes, shopMaster reads the ChangeLog and syncs changes to Digible's API at `api.digible.one`
+3. **Clean** - After successful sync, the ChangeLog is cleared and ready for the next batch of changes
+
+<Info>
+  shopMaster requires SQL Server with ODBC Driver 17 and Python 3.x to run on your Windows machine.
+</Info>
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Download and install shopMaster on your Windows machine
+  </Card>
+  <Card
+    title="Quick start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Configure your first sync and start syncing products in minutes
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/configuration/database-setup"
+  >
+    Learn about all configuration options and advanced settings
+  </Card>
+  <Card
+    title="Troubleshooting"
+    icon="wrench"
+    href="/guides/troubleshooting"
+  >
+    Common issues and how to resolve them
+  </Card>
+</CardGroup>

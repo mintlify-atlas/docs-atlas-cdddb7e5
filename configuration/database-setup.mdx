@@ -1,0 +1,139 @@
+---
+title: Database setup
+description: Configure your SQL Server connection to sync product data with Digible's cloud platform
+---
+
+shopMaster connects to your local SQL Server database to track and sync product changes. You can authenticate using Windows Authentication or SQL Server password authentication.
+
+## Connection settings
+
+Navigate to the **Settings** page in shopMaster to configure your database connection.
+
+<Steps>
+  <Step title="Enter server details">
+    Provide your SQL Server connection information:
+
+    <ParamField path="Server Name" type="string" required>
+      The name or IP address of your SQL Server instance (e.g., `localhost\SQLEXPRESS` or `192.168.1.100`)
+    </ParamField>
+
+    <ParamField path="Database Name" type="string" required>
+      The name of the database containing your product table
+    </ParamField>
+
+    <ParamField path="Local Table Name" type="string" required>
+      The name of your product table to sync (e.g., `Products`, `Inventory`)
+    </ParamField>
+  </Step>
+
+  <Step title="Choose authentication method">
+    Select your preferred authentication method from the **Security** dropdown:
+
+    ### Windows Authentication
+
+    Uses your Windows credentials to connect to SQL Server. This is the default and recommended method for local installations.
+
+    ```python
+    # Connection string format (from helper.py:12)
+    connection_string = f"mssql+pyodbc://:@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=yes"
+    ```
+
+    <Note>
+      Windows Authentication requires that your Windows user account has access to the SQL Server database.
+    </Note>
+
+    ### Password Authentication
+
+    Uses SQL Server login credentials. When you select **Password** from the Security dropdown, additional fields appear:
+
+    <ParamField path="Username" type="string" required>
+      Your SQL Server login username
+    </ParamField>
+
+    <ParamField path="Password" type="string" required>
+      Your SQL Server login password (displayed as asterisks)
+    </ParamField>
+
+    ```python
+    # Connection string format (from helper.py:10)
+    connection_string = f"mssql+pyodbc://{username}:{password}@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server"
+    ```
+  </Step>
+
+  <Step title="Test your connection">
+    Click **Test Connection** to verify your database settings. shopMaster will:
+
+    - Attempt to connect to your SQL Server database
+    - Validate your Digible account credentials
+    - Display a status message for both connections
+
+    ```python
+    # From main.py:184-195
+    local_db_url = createConnectionString(server_name, database_name, username, password, security)
+    local_test = test_connectionString(local_db_url)
+    online_test = digible_connect(digible_username, digible_password)["message"]
+    ```
+
+    <Info>
+      The test connection checks both your local database and Digible account to ensure end-to-end connectivity.
+    </Info>
+  </Step>
+
+  <Step title="Complete configuration">
+    Once the connection test succeeds, click **Configure** to:
+
+    - Save your settings to a `.env` file
+    - Create the `ChangeLog` table in your database
+    - Set up database triggers for INSERT, UPDATE, and DELETE operations
+
+    The triggers automatically track changes to your product table without modifying your existing database schema.
+  </Step>
+</Steps>
+
+## Database requirements
+
+<Warning>
+  Your SQL Server must have **ODBC Driver 17 for SQL Server** installed. shopMaster uses this driver to establish database connections.
+</Warning>
+
+Your product table must include these columns:
+
+- `ProductID` (VARCHAR(25)) - Primary key
+- `ProductName` (VARCHAR(75)) - Product name
+- `SellPrice` (NUMERIC(18, 2)) - Product price
+- `QrCode` (VARCHAR(100)) - Optional QR code
+- `Status` (INT) - Product status
+
+The configuration process creates a `ChangeLog` table and three triggers (`trgAfterInsert`, `trgAfterUpdate`, `trgAfterDelete`) to track changes. See the [change tracking guide](/features/change-tracking) for details.
+
+## Stored credentials
+
+Your database credentials are saved to a `.env` file in the shopMaster installation directory:
+
+```env
+local_db_url=mssql+pyodbc://...
+server_name=localhost\SQLEXPRESS
+db_name=MyDatabase
+local_table=Products
+security=Windows Authentication
+# Only for Password authentication:
+username=sa
+password=mypassword
+```
+
+<Note>
+  Keep your `.env` file secure. It contains sensitive connection information.
+</Note>
+
+## Troubleshooting
+
+If the connection test fails:
+
+- Verify SQL Server is running and accessible
+- Check that the database and table names are correct
+- Ensure your user account has read/write permissions
+- Confirm ODBC Driver 17 is installed
+- For Windows Authentication, verify your Windows user has SQL Server access
+- For Password Authentication, check that SQL Server authentication is enabled
+
+See the [troubleshooting guide](/guides/troubleshooting) for more help.

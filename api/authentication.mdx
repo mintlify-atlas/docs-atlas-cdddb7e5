@@ -1,0 +1,131 @@
+---
+title: Authentication
+description: Authenticate with the Digible platform and manage access tokens
+---
+
+The authentication module handles login to the Digible platform and JWT token validation.
+
+## digible_connect
+
+Authenticate with the Digible platform using email and password credentials.
+
+```python
+from app.helper import digible_connect
+import os
+from dotenv import load_dotenv, set_key
+
+load_dotenv()
+
+result = digible_connect(
+    username="user@example.com",
+    password="mypassword"
+)
+
+if "token" in result:
+    # Save token to .env file
+    set_key(".env", "access_token", result["token"])
+    print(f"Login successful: {result['message']}")
+else:
+    print(f"Login failed: {result['message']}")
+```
+
+<ParamField path="username" type="str" required>
+  The user's email address for their Digible account
+</ParamField>
+
+<ParamField path="password" type="str" required>
+  The user's password
+</ParamField>
+
+<ResponseField name="result" type="dict">
+  On success, returns:
+  - `token` (str): The JWT access token for API requests
+  - `message` (str): Success message from the API
+  
+  On failure, returns:
+  - `message` (str): Error message explaining what went wrong
+  
+  On exception, returns a string describing the error
+</ResponseField>
+
+### API endpoint
+
+POST `https://api.digible.one/v1/business/account/auth/login`
+
+### Request format
+
+```json
+{
+  "email": "user@example.com",
+  "password": "mypassword"
+}
+```
+
+### Response format
+
+**Success (200)**:
+```json
+{
+  "message": "Login successful",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+}
+```
+
+**Failure (4xx/5xx)**:
+```json
+{
+  "message": "Invalid credentials"
+}
+```
+
+<Warning>
+  Store the access token securely in your `.env` file as `access_token`. All other API functions expect this token to be available via `os.getenv('access_token')`.
+</Warning>
+
+## is_token_expired
+
+Check if the current access token has expired.
+
+```python
+from app.helper import is_token_expired
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+if is_token_expired():
+    print("Token expired - please login again")
+    # Re-authenticate with digible_connect()
+else:
+    print("Token is still valid")
+```
+
+<ResponseField name="expired" type="bool | str">
+  Returns:
+  - `True` if the token is expired
+  - `False` if the token is still valid
+  - An error string (e.g., "invalid token {error}") if the token cannot be decoded
+</ResponseField>
+
+### How it works
+
+1. Reads the `access_token` from environment variables
+2. Decodes the JWT without signature verification
+3. Extracts the `exp` (expiration) timestamp
+4. Compares `exp` to the current Unix timestamp
+5. Returns `True` if the current time is past the expiration time
+
+<Note>
+  This function uses `jwt.decode()` with `verify_signature=False` to check expiration without needing the signing key. It only validates the timestamp, not the token's authenticity.
+</Note>
+
+### Usage in sync operations
+
+Both `sync_data()` and `sendBatchContent()` call this function before attempting API requests:
+
+```python
+if is_token_expired():
+    return False  # or True for sendBatchContent
+```

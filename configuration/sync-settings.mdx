@@ -1,0 +1,262 @@
+---
+title: Sync settings
+description: Configure how shopMaster syncs product data between your database and Digible
+---
+
+shopMaster provides flexible sync options to keep your local product database in sync with Digible's cloud platform.
+
+## Table mapping
+
+You must specify which local table contains your product data.
+
+<ParamField path="Local Table Name" type="string" required>
+  The name of your SQL Server table containing products (e.g., `Products`, `Inventory`, `Items`)
+</ParamField>
+
+```python
+# From main.py:138-142
+tk.Label(settings_frame, text="Local Table Name:").grid(row=2, column=0, padx=10, pady=10, sticky="e")
+local_table_entry = tk.Entry(settings_frame, width=30, textvariable=local_table_var)
+```
+
+When you click **Configure**, shopMaster:
+
+1. Updates the table name in the LocalProduct model
+2. Creates database triggers on your specified table
+3. Saves the table name to your `.env` file
+
+```python
+# From main.py:197-212
+local_table = local_table_var.get()
+LocalProduct.local_table = local_table
+LocalProduct.set_table_name(local_table)
+
+with open(".env", "w") as env_file:
+    env_file.write(f"local_table={local_table}\n")
+```
+
+<Note>
+  Your product table must have the required columns: `ProductID`, `ProductName`, `SellPrice`, `QrCode`, and `Status`. See [database setup](/configuration/database-setup) for details.
+</Note>
+
+## Sync intervals
+
+shopMaster offers two sync modes:
+
+### Automatic sync
+
+Click **Start Sync task** on the home page to enable scheduled syncing.
+
+```python
+# From main.py:35-41
+def start_sync_task():
+    db_url = createConnectionString(server_name=os.getenv("server_name"), 
+                                    database_name=os.getenv("db_name"), 
+                                    username=os.getenv("username"), 
+                                    password=os.getenv("password"), 
+                                    security=os.getenv("security"))
+    sync_data(db_url)
+    schedule.every(2).minutes.do(start_sync_task)
+```
+
+<Info>
+  Automatic sync runs **every 2 minutes** by default. This interval is hard-coded in the application.
+</Info>
+
+When automatic sync is running:
+- The status updates to "Sync task scheduled to run every 2 minutes"
+- **Last Sync** timestamp updates after each successful sync
+- The sync runs in a background thread without blocking the UI
+
+```python
+# From main.py:300-302
+schedule_thread = threading.Thread(target=run_schedule)
+schedule_thread.daemon = True
+schedule_thread.start()
+```
+
+To stop automatic sync, click **Stop Sync task**:
+
+```python
+# From main.py:55-57
+def stop_sync_task():
+    schedule.clear()
+    status_label.configure(text="Sync task has been stopped")
+```
+
+### Manual sync
+
+Click **Sync now** on the home page to trigger an immediate sync.
+
+```python
+# From main.py:44-52
+def manual_sync():
+    db_url = createConnectionString(server_name=os.getenv("server_name"), 
+                                    database_name=os.getenv("db_name"), 
+                                    username=os.getenv("username"), 
+                                    password=os.getenv("password"), 
+                                    security=os.getenv("security"))
+    sync = sync_data(db_url)
+    if sync == False:
+        status_label.configure(text="User Session expired please reconfigure")
+        return
+```
+
+Use manual sync when:
+- You want to sync immediately without waiting for the schedule
+- Testing your configuration
+- Syncing after making bulk product changes
+
+## How syncing works
+
+shopMaster uses a change tracking system to sync only modified products:
+
+<Steps>
+  <Step title="Track changes">
+    Database triggers automatically log INSERT and UPDATE operations to the `ChangeLog` table:
+
+    ```sql
+    -- From helper.py:56-69 (trgAfterInsert trigger)
+    CREATE OR ALTER TRIGGER trgAfterInsert ON {local_table}
+    AFTER INSERT
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+        IF NOT EXISTS (SELECT * FROM ChangeLog WHERE ChangeType = 'INSERT' AND ProductID IN (SELECT ProductID FROM inserted))
+        BEGIN
+            INSERT INTO ChangeLog (ChangeType, ProductID, ProductName, SellPrice, QrCode, Status)
+            SELECT 'INSERT', i.ProductID, i.ProductName, i.SellPrice, i.QrCode, i.Status
+            FROM inserted i;
+        END
+    END;
+    ```
+  </Step>
+
+  <Step title="Fetch changes">
+    During sync, shopMaster queries the `ChangeLog` table for pending changes:
+
+    ```python
+    # From helper.py:308-314
+    query = """
+    SELECT * FROM ChangeLog 
+    WHERE ChangeType IN ('INSERT', 'UPDATE')
+    """
+    
+    changes = connection.execute(text(query)).fetchall()
+    ```
+  </Step>
+
+  <Step title="Send to Digible">
+    For each change, shopMaster sends the appropriate API request:
+
+    ```python
+    # From helper.py:317-328
+    for change in changes:
+        if change.ChangeType == 'INSERT':
+            productFormat = changeUploadFormat(change)
+            uploadInsertedContent(productFormat)  # POST to /product/sync
+        else:
+            productFormat = changeFormat(change)
+            updateProduct(productFormat)  # PUT to /product/external/update
+    ```
+  </Step>
+
+  <Step title="Clear the log">
+    After successfully syncing, shopMaster clears processed records:
+
+    ```python
+    # From helper.py:333-335
+    connection.execute(text("DELETE FROM ChangeLog WHERE ChangeType IN ('INSERT', 'UPDATE')"))
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  DELETE operations are logged but not currently synced to Digible. Only INSERT and UPDATE changes are sent to the cloud.
+</Warning>
+
+## Batch uploads
+
+For initial setup or bulk operations, use **Upload Products** in the Settings page:
+
+```python
+# From helper.py:140-202 (sendBatchContent)
+batch_size = 200
+
+for i in range(0, len(products), batch_size):
+    batch_products = products[i:i + batch_size]
+    product_list = [
+        {
+            "productName": product['ProductName'],
+            "productPrice": str(product['SellPrice']),
+            "productId": product['ProductID']
+        } for product in batch_products
+    ]
+    product_json = json.dumps(product_list, indent=4)
+    response = requests.post(url, data=product_json, headers=headers)
+```
+
+This feature:
+- Uploads all products from your local table
+- Processes products in batches of 200
+- Useful for initial setup or recovering from sync issues
+
+<Info>
+  Batch upload sends your entire product catalog to Digible. Use this sparingly—automatic sync is more efficient for ongoing changes.
+</Info>
+
+## Sync requirements
+
+For syncing to work, shopMaster verifies:
+
+1. **Valid access token** - Not expired
+2. **Internet connectivity** - Can reach Digible API
+3. **Database connection** - Can access your SQL Server
+
+```python
+# From helper.py:291-297
+def sync_data(db_url):
+    if is_token_expired():
+        return False
+
+    if not is_connected():
+        print("Not connected")
+        return False
+```
+
+If any check fails, sync stops and displays an error message.
+
+## Monitoring sync status
+
+The home page displays:
+
+- **Last Sync** timestamp - When the most recent sync completed
+- **Status message** - Current sync state or error messages
+
+```python
+# From main.py:39-41, 50-52
+last_sync_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+last_sync_label.configure(text=f"Last Sync: {last_sync_time}", bg=color1, fg="green")
+status_label.configure(text="Manual sync completed successfully", bg=color1, fg="green")
+```
+
+## Troubleshooting
+
+### Sync not running
+
+- Check that you clicked **Start Sync task**
+- Verify your access token hasn't expired
+- Ensure database connection is working
+
+### Products not syncing
+
+- Verify changes are being logged to the `ChangeLog` table
+- Check that triggers are created on your product table
+- Test internet connectivity to Digible API
+
+### Session expired errors
+
+- Your access token has expired
+- Go to **Settings** and click **Configure** to re-authenticate
+
+See [automatic sync](/features/automatic-sync), [manual sync](/features/manual-sync), and the [troubleshooting guide](/guides/troubleshooting) for more help.

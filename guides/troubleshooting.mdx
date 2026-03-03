@@ -1,0 +1,578 @@
+---
+title: Troubleshooting guide
+description: Solutions for common shopMaster issues including connection errors, sync failures, and configuration problems
+---
+
+## Connection errors
+
+Connection issues are the most common problems when setting up shopMaster. Here's how to diagnose and fix them.
+
+### "Login failed for user"
+
+**Error message:**
+```
+Login failed for user 'username'
+```
+
+**Cause:** Invalid credentials or insufficient permissions.
+
+<Steps>
+  <Step title="Verify credentials">
+    Double-check your username and password in the Settings page. SQL Server usernames are case-sensitive.
+  </Step>
+
+  <Step title="Check SQL Server authentication mode">
+    SQL Server must be configured for SQL Server and Windows Authentication mode (mixed mode).
+
+    **To check:**
+    1. Open SQL Server Management Studio (SSMS)
+    2. Right-click your server instance → **Properties**
+    3. Go to **Security** page
+    4. Ensure "SQL Server and Windows Authentication mode" is selected
+    5. Restart SQL Server service if you changed this setting
+  </Step>
+
+  <Step title="Verify user exists">
+    Run this query in SSMS:
+    ```sql
+    SELECT name, type_desc, create_date
+    FROM sys.server_principals
+    WHERE name = 'your_username';
+    ```
+
+    If no results, the user doesn't exist. Create it:
+    ```sql
+    CREATE LOGIN your_username WITH PASSWORD = 'YourPassword123!';
+    ```
+  </Step>
+
+  <Step title="Grant database access">
+    The user needs access to your specific database:
+    ```sql
+    USE ProductsDB;
+    CREATE USER your_username FOR LOGIN your_username;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Products TO your_username;
+    ```
+  </Step>
+</Steps>
+
+### "Cannot open database requested by the login"
+
+**Error message:**
+```
+Cannot open database "DatabaseName" requested by the login. The login failed.
+```
+
+**Cause:** The database doesn't exist, or the user doesn't have access.
+
+<AccordionGroup>
+  <Accordion title="Solution 1: Verify database name">
+    Database names are case-sensitive on some SQL Server configurations.
+
+    **Check existing databases:**
+    ```sql
+    SELECT name FROM sys.databases ORDER BY name;
+    ```
+
+    Make sure the database name in shopMaster Settings matches exactly.
+  </Accordion>
+
+  <Accordion title="Solution 2: Grant database access">
+    The login exists but doesn't have a user in the database:
+
+    ```sql
+    USE YourDatabaseName;
+    GO
+    CREATE USER your_username FOR LOGIN your_username;
+    GO
+    GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.YourTableName TO your_username;
+    GO
+    ```
+  </Accordion>
+
+  <Accordion title="Solution 3: Check database status">
+    The database might be offline or in recovery mode:
+
+    ```sql
+    SELECT name, state_desc FROM sys.databases;
+    ```
+
+    If not "ONLINE", you need to bring it online:
+    ```sql
+    ALTER DATABASE YourDatabaseName SET ONLINE;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### "Named Pipes Provider: Could not open a connection to SQL Server"
+
+**Error message:**
+```
+[Named Pipes Provider] Could not open a connection to SQL Server [53]
+```
+
+**Cause:** SQL Server is not running, not accessible, or server name is incorrect.
+
+<Steps>
+  <Step title="Verify SQL Server is running">
+    **Windows Services:**
+    1. Press `Win + R`, type `services.msc`
+    2. Look for "SQL Server (INSTANCENAME)"
+    3. Ensure Status is "Running"
+    4. If stopped, right-click → **Start**
+
+    **Or use PowerShell:**
+    ```powershell
+    Get-Service -Name "MSSQL$*"
+    ```
+  </Step>
+
+  <Step title="Check server name format">
+    **For named instances:**
+    - Use format: `COMPUTERNAME\INSTANCENAME`
+    - Example: `DESKTOP-ABC123\SQLEXPRESS`
+
+    **For default instances:**
+    - Use: `localhost` or `.` or computer name
+
+    **Find your instance name:**
+    ```powershell
+    Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -Name InstalledInstances
+    ```
+  </Step>
+
+  <Step title="Enable TCP/IP protocol">
+    SQL Server might not be accepting TCP/IP connections:
+
+    1. Open **SQL Server Configuration Manager**
+    2. Navigate to **SQL Server Network Configuration** → **Protocols for [INSTANCE]**
+    3. Right-click **TCP/IP** → **Enable**
+    4. Restart SQL Server service
+  </Step>
+
+  <Step title="Check firewall settings">
+    Windows Firewall might be blocking SQL Server:
+
+    **Allow SQL Server through firewall:**
+    ```powershell
+    New-NetFirewallRule -DisplayName "SQL Server" -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow
+    ```
+
+    **For named instances (uses dynamic ports):**
+    ```powershell
+    New-NetFirewallRule -DisplayName "SQL Browser" -Direction Inbound -Protocol UDP -LocalPort 1434 -Action Allow
+    ```
+  </Step>
+</Steps>
+
+### "ODBC Driver 17 for SQL Server not found"
+
+**Error message:**
+```
+Data source name not found and no default driver specified
+```
+or
+```
+[Microsoft][ODBC Driver Manager] Data source name not found
+```
+
+**Cause:** ODBC Driver 17 for SQL Server is not installed.
+
+<Steps>
+  <Step title="Download the driver">
+    Visit [Microsoft's official download page](https://docs.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server) and download ODBC Driver 17 for SQL Server.
+  </Step>
+
+  <Step title="Install the driver">
+    Run the installer and follow the prompts. No special configuration needed.
+  </Step>
+
+  <Step title="Verify installation">
+    Open **ODBC Data Sources** (search in Start menu) and check the **Drivers** tab for "ODBC Driver 17 for SQL Server".
+  </Step>
+
+  <Step title="Restart shopMaster">
+    Close and reopen shopMaster, then test your connection again.
+  </Step>
+</Steps>
+
+<Warning>
+  If you have ODBC Driver 18 but not 17, you'll need to install Driver 17 specifically. shopMaster is configured to use Driver 17.
+</Warning>
+
+## Sync errors
+
+### "User Session expired please reconfigure"
+
+**When it appears:** During automatic sync or manual sync attempts.
+
+**Cause:** Your Digible access token has expired (tokens typically last 24 hours).
+
+**Solution:**
+<Steps>
+  <Step title="Go to Settings">
+    Click the **Settings** button in the sidebar.
+  </Step>
+
+  <Step title="Re-enter Digible credentials">
+    Enter your Digible email and password (they should still be filled in).
+  </Step>
+
+  <Step title="Click 'Configure'">
+    This will:
+    - Request a new access token from Digible
+    - Update your `.env` file
+    - Resume sync operations
+  </Step>
+</Steps>
+
+<Info>
+  The token expiration check happens in `app/helper.py:243`. shopMaster decodes the JWT token and compares the expiration timestamp with the current time.
+</Info>
+
+### "Not connected" during sync
+
+**Error in console:** 
+```
+Not connected
+```
+
+**Cause:** No internet connection detected.
+
+**How it works:**
+shopMaster checks internet connectivity before syncing by making a request to `https://www.google.com/` (see `app/check_connection.py:3`).
+
+**Solutions:**
+<AccordionGroup>
+  <Accordion title="Check your internet connection">
+    - Verify you can browse websites
+    - Check if your firewall is blocking shopMaster
+    - Try pinging google.com from Command Prompt:
+      ```cmd
+      ping google.com
+      ```
+  </Accordion>
+
+  <Accordion title="Check proxy settings">
+    If you're behind a corporate proxy, shopMaster's requests might be blocked. You may need to configure proxy settings in your environment.
+  </Accordion>
+
+  <Accordion title="Whitelist Digible API">
+    Ensure your firewall allows connections to:
+    - `https://api.digible.one`
+    - `https://www.google.com` (for connectivity check)
+  </Accordion>
+</AccordionGroup>
+
+### Sync runs but changes aren't appearing
+
+**Symptom:** Sync shows "successful" but product changes don't appear in Digible.
+
+<Steps>
+  <Step title="Check the ChangeLog table">
+    Open SSMS and query:
+    ```sql
+    SELECT * FROM ChangeLog ORDER BY ChangeDateTime DESC;
+    ```
+
+    - **If empty:** Triggers aren't firing (see below)
+    - **If populated:** Changes are logged but not syncing
+  </Step>
+
+  <Step title="Verify triggers exist">
+    ```sql
+    SELECT name, is_disabled
+    FROM sys.triggers
+    WHERE parent_id = OBJECT_ID('dbo.YourTableName');
+    ```
+
+    You should see three triggers:
+    - `trgAfterInsert`
+    - `trgAfterUpdate`
+    - `trgAfterDelete`
+
+    If `is_disabled = 1`, enable them:
+    ```sql
+    ENABLE TRIGGER trgAfterInsert ON dbo.YourTableName;
+    ENABLE TRIGGER trgAfterUpdate ON dbo.YourTableName;
+    ENABLE TRIGGER trgAfterDelete ON dbo.YourTableName;
+    ```
+  </Step>
+
+  <Step title="Test trigger manually">
+    Make a test change:
+    ```sql
+    UPDATE dbo.YourTableName
+    SET SellPrice = SellPrice + 0.01
+    WHERE ProductID = 'TEST001';
+
+    -- Check if it logged
+    SELECT * FROM ChangeLog WHERE ProductID = 'TEST001';
+    ```
+  </Step>
+
+  <Step title="Check Digible API response">
+    Look at the shopMaster console output during sync. You should see:
+    ```
+    Response status code: 200
+    Response content: {...}
+    ```
+
+    If status code is not 200, check the error message.
+  </Step>
+</Steps>
+
+### "Error: Invalid column name"
+
+**Error message:**
+```
+Error: Invalid column name 'ProductID'
+```
+
+**Cause:** Your product table has different column names than expected.
+
+**Required columns:**
+- `ProductID` - VARCHAR(25)
+- `ProductName` - VARCHAR(75)
+- `SellPrice` - NUMERIC(18, 2)
+- `QrCode` - VARCHAR(100)
+- `Status` - INT
+
+**Solution:**
+<Accordion title="Option 1: Rename your columns (if possible)">
+  ```sql
+  EXEC sp_rename 'YourTable.OldColumnName', 'ProductID', 'COLUMN';
+  EXEC sp_rename 'YourTable.OldProductName', 'ProductName', 'COLUMN';
+  -- Repeat for each column
+  ```
+
+  <Warning>
+    Renaming columns may break other applications using this database. Test thoroughly.
+  </Warning>
+</Accordion>
+
+<Accordion title="Option 2: Create a view with standard names">
+  ```sql
+  CREATE VIEW Products AS
+  SELECT 
+      YourProductIDColumn AS ProductID,
+      YourProductNameColumn AS ProductName,
+      YourPriceColumn AS SellPrice,
+      YourQRColumn AS QrCode,
+      YourStatusColumn AS Status
+  FROM YourActualTable;
+  ```
+
+  Then use `Products` as your table name in shopMaster Settings.
+</Accordion>
+
+## Configuration errors
+
+### "Permission denied" when creating triggers
+
+**Error message:**
+```
+Error: CREATE TRIGGER permission denied
+```
+
+**Cause:** Your SQL Server user doesn't have permission to create triggers.
+
+**Solution:**
+```sql
+-- Grant permission to create triggers
+USE YourDatabaseName;
+GO
+GRANT ALTER ON SCHEMA::dbo TO your_username;
+GO
+
+-- Or grant more comprehensive permissions
+GRANT CREATE TABLE TO your_username;
+GRANT CREATE PROCEDURE TO your_username;
+```
+
+<Tip>
+  If you don't have administrator access, ask your DBA to run the Configure step with an admin account, then switch back to your regular account for syncing.
+</Tip>
+
+### ChangeLog table already exists with different structure
+
+**Symptom:** Configuration fails or triggers don't work correctly.
+
+**Solution:**
+<Steps>
+  <Step title="Backup existing ChangeLog (if needed)">
+    ```sql
+    SELECT * INTO ChangeLog_Backup FROM ChangeLog;
+    ```
+  </Step>
+
+  <Step title="Drop existing objects">
+    ```sql
+    -- Drop triggers
+    DROP TRIGGER IF EXISTS trgAfterInsert;
+    DROP TRIGGER IF EXISTS trgAfterUpdate;
+    DROP TRIGGER IF EXISTS trgAfterDelete;
+
+    -- Drop table
+    DROP TABLE IF EXISTS ChangeLog;
+    ```
+  </Step>
+
+  <Step title="Re-run Configure in shopMaster">
+    Go to Settings and click **Configure** to recreate everything with the correct structure.
+  </Step>
+</Steps>
+
+## Application errors
+
+### shopMaster won't start
+
+**Symptom:** Application crashes immediately or shows error dialog.
+
+<AccordionGroup>
+  <Accordion title="Missing .env file">
+    shopMaster requires a `.env` file in the same directory as the executable.
+
+    **Solution:** Run shopMaster, go to Settings, and complete the configuration. This creates the `.env` file.
+  </Accordion>
+
+  <Accordion title="Corrupted .env file">
+    If the `.env` file is corrupted, delete it and reconfigure:
+
+    1. Close shopMaster
+    2. Delete the `.env` file
+    3. Start shopMaster
+    4. Complete Settings configuration
+  </Accordion>
+
+  <Accordion title="Python runtime error">
+    If you're running from source, ensure you have all dependencies:
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+    Required packages:
+    - sqlalchemy
+    - pyodbc
+    - python-dotenv
+    - pyjwt
+    - requests
+    - tkinter (usually included with Python)
+  </Accordion>
+</AccordionGroup>
+
+### "Sync task scheduled" but nothing happens
+
+**Symptom:** You click "Start Sync task" and see the message, but no syncs occur.
+
+**Cause:** The background scheduler thread is running, but sync conditions aren't met.
+
+**Checklist:**
+<Steps>
+  <Step title="Ensure you've configured">
+    You must click **Configure** in Settings before syncing works.
+  </Step>
+
+  <Step title="Check token validity">
+    If your Digible token expired, automatic sync silently fails. Check the console for "User Session expired" messages.
+  </Step>
+
+  <Step title="Verify internet connection">
+    The sync only runs when `is_connected()` returns True.
+  </Step>
+
+  <Step title="Check for database changes">
+    The ChangeLog table must have entries for sync to send anything:
+    ```sql
+    SELECT COUNT(*) FROM ChangeLog WHERE ChangeType IN ('INSERT', 'UPDATE');
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  The scheduled sync runs every 2 minutes (see `main.py:38`). Wait at least 2 minutes after clicking "Start Sync task" before troubleshooting.
+</Info>
+
+## Performance issues
+
+### Slow sync with large databases
+
+**Symptom:** Sync takes a very long time or times out.
+
+**Cause:** Large batch sizes or network latency.
+
+**Current behavior:**
+- Batch size: 200 products per request (see `app/helper.py:141`)
+- All products are loaded into memory before sending
+
+**Solutions:**
+<Accordion title="Use 'Upload Products' for initial sync">
+  The **Upload Products** button in Settings sends your entire product catalog in batches of 200. Use this for the initial sync instead of waiting for individual changes.
+</Accordion>
+
+<Accordion title="Reduce batch size for slow networks">
+  If you're experiencing timeouts, you may need to modify the batch size in the source code.
+
+  <Warning>
+    This requires rebuilding the application from source.
+  </Warning>
+</Accordion>
+
+<Accordion title="Index the ChangeLog table">
+  Add an index to speed up sync queries:
+
+  ```sql
+  CREATE INDEX IX_ChangeLog_ChangeType 
+  ON ChangeLog(ChangeType, ChangeDateTime);
+  ```
+</Accordion>
+
+### High CPU usage
+
+**Symptom:** shopMaster uses excessive CPU continuously.
+
+**Cause:** The schedule check loop runs every 10 seconds (see `main.py:32`).
+
+**This is normal behavior.** The application uses minimal CPU most of the time, with brief spikes during:
+- Database queries
+- API requests
+- GUI updates
+
+If CPU usage is consistently high (>10%), check:
+1. SQL Server isn't under heavy load
+2. No errors in the console output
+3. Network connectivity is stable
+
+## Getting help
+
+If you've tried these solutions and still have issues:
+
+<Steps>
+  <Step title="Check console output">
+    shopMaster prints detailed logs to the console. Look for error messages and stack traces.
+  </Step>
+
+  <Step title="Test components individually">
+    - Test SQL Server connection in SSMS
+    - Test Digible login credentials in browser
+    - Verify internet connectivity
+  </Step>
+
+  <Step title="Gather diagnostic information">
+    Before contacting support, collect:
+    - Error messages (exact text)
+    - SQL Server version: `SELECT @@VERSION`
+    - ODBC driver version
+    - shopMaster version
+    - Relevant console output
+  </Step>
+
+  <Step title="Contact Digible support">
+    Reach out to Digible support with your diagnostic information for personalized assistance.
+  </Step>
+</Steps>
+
+<Tip>
+  Most issues are related to SQL Server permissions or network connectivity. Start troubleshooting there before investigating application-specific issues.
+</Tip>

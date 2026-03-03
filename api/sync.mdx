@@ -1,0 +1,170 @@
+---
+title: Data synchronization
+description: Sync local SQL Server product data with the Digible cloud platform
+---
+
+The sync module handles synchronizing product changes from your local database to Digible's cloud platform. It processes changes from the ChangeLog table and sends them via API.
+
+## sync_data
+
+Synchronize all pending product changes from the ChangeLog table to the Digible platform.
+
+```python
+from app.helper import sync_data
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+db_url = os.getenv("local_db_url")
+
+success = sync_data(db_url)
+if success:
+    print("All changes synced successfully")
+else:
+    print("Sync failed")
+```
+
+<ParamField path="db_url" type="str" required>
+  The SQLAlchemy database URL for your local SQL Server database
+</ParamField>
+
+<ResponseField name="success" type="bool">
+  Returns `True` if sync completed successfully, `False` if authentication failed, no connection, or an error occurred
+</ResponseField>
+
+### How it works
+
+1. **Pre-flight checks**: Verifies the access token is valid and internet connection is available
+2. **Fetch changes**: Retrieves all INSERT and UPDATE records from the ChangeLog table
+3. **Process changes**: For each change:
+   - INSERT records are sent via `uploadInsertedContent()`
+   - UPDATE records are sent via `updateProduct()`
+4. **Clear log**: Deletes processed INSERT and UPDATE records from ChangeLog
+
+<Note>
+  DELETE operations are logged but not synced to the cloud platform.
+</Note>
+
+## sendBatchContent
+
+Perform an initial full sync of all products from your local database to Digible.
+
+```python
+from app.helper import sendBatchContent
+
+result = sendBatchContent()
+if result.get("message") == "All batches sent successfully":
+    print("Initial sync complete")
+```
+
+<ResponseField name="result" type="dict">
+  A dictionary containing:
+  - `message`: Status message describing the result
+  - `status_code`: HTTP status code (only present on errors)
+</ResponseField>
+
+### Implementation details
+
+- Reads `local_db_url` and `local_table` from environment variables
+- Sends products in batches of 200 to avoid timeout issues
+- Each product is formatted with `productName`, `productPrice`, and `productId` fields
+- Uses the `/v1/business/stores/product/sync` endpoint
+
+### Error handling
+
+Returns error objects for common failures:
+
+```json
+// Token expired
+true
+
+// Failed batch
+{
+  "message": "Failed to sync products",
+  "status_code": 400
+}
+
+// Invalid response
+{
+  "message": "Invalid JSON response from the server"
+}
+
+// Exception occurred
+{
+  "message": "Error: Connection timeout"
+}
+```
+
+## uploadInsertedContent
+
+Upload a single newly inserted product to the Digible platform.
+
+```python
+from app.helper import uploadInsertedContent
+
+product = {
+    "productName": "Laptop Stand",
+    "productPrice": "49.99",
+    "productId": "SKU-12345"
+}
+
+response = uploadInsertedContent(product)
+print(response)
+```
+
+<ParamField path="product" type="dict" required>
+  A product dictionary with the following structure:
+  - `productName` (str): The product name
+  - `productPrice` (str): The product price as a string
+  - `productId` (str): The local product ID
+</ParamField>
+
+<ResponseField name="response" type="dict">
+  The JSON response from the Digible API, or an error message string if the request fails
+</ResponseField>
+
+### API endpoint
+
+POST `https://api.digible.one/v1/business/stores/product/sync`
+
+<Note>
+  The function wraps the product in a list before sending, as the API expects an array of products.
+</Note>
+
+## updateProduct
+
+Update an existing product on the Digible platform.
+
+```python
+from app.helper import updateProduct
+
+product = {
+    "productName": "Laptop Stand - Updated",
+    "productPrice": "59.99",
+    "localProductId": "SKU-12345"
+}
+
+response = updateProduct(product)
+print(response)
+```
+
+<ParamField path="product" type="dict" required>
+  A product dictionary with the following structure:
+  - `productName` (str): The updated product name
+  - `productPrice` (str): The updated product price as a string
+  - `localProductId` (str): The local product ID to update
+</ParamField>
+
+<ResponseField name="response" type="dict">
+  The JSON response from the Digible API, or an error message string if the request fails
+</ResponseField>
+
+### API endpoint
+
+PUT `https://api.digible.one/v1/business/stores/product/external/update`
+
+### Difference from uploadInsertedContent
+
+Note the different field name for the product ID:
+- **uploadInsertedContent**: Uses `productId`
+- **updateProduct**: Uses `localProductId`

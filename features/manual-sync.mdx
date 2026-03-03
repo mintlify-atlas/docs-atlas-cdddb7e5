@@ -1,0 +1,104 @@
+---
+title: Manual sync
+description: Trigger an immediate one-time synchronization of local database changes to Digible
+---
+
+Manual sync allows you to push local database changes to Digible on demand, without waiting for the automatic sync schedule.
+
+## When to use manual sync
+
+Use manual sync when you:
+
+- Want to immediately push recent changes to Digible
+- Need to verify that changes are syncing correctly
+- Have just made important updates that can't wait for the 2-minute automatic sync cycle
+- Want to perform a one-time sync without starting the automatic scheduler
+
+## How it works
+
+The manual sync process follows these steps:
+
+<Steps>
+  <Step title="Click Sync now">
+    The **Sync now** button (main.py:105-110) triggers the `manual_sync()` function immediately.
+  </Step>
+  
+  <Step title="Create connection">
+    shopMaster creates a database connection string using your configured SQL Server credentials (main.py:45).
+  </Step>
+  
+  <Step title="Execute sync">
+    The `sync_data()` function (helper.py:291) is called to process all pending changes from the ChangeLog table.
+  </Step>
+  
+  <Step title="Update UI">
+    The last sync timestamp updates and a success message displays: "Manual sync completed successfully" (main.py:51-52).
+  </Step>
+</Steps>
+
+<Info>
+Manual sync uses the same `sync_data()` function as automatic sync, ensuring consistent behavior between manual and scheduled operations.
+</Info>
+
+## Performing a manual sync
+
+To execute a manual sync:
+
+1. Open shopMaster and navigate to the Home page
+2. Click the **Sync now** button
+3. Wait for the status message to confirm completion
+4. Check the "Last Sync" timestamp to verify execution
+
+## What happens during sync
+
+When you trigger a manual sync, shopMaster:
+
+1. **Checks authentication**: Verifies your access token hasn't expired (helper.py:292)
+2. **Verifies connectivity**: Confirms internet connection before attempting sync (helper.py:295)
+3. **Fetches changes**: Queries the ChangeLog table for INSERT and UPDATE operations (helper.py:308-311)
+4. **Processes each change**:
+   - INSERT operations call `uploadInsertedContent()` (helper.py:318-322)
+   - UPDATE operations call `updateProduct()` (helper.py:325-327)
+5. **Clears the log**: Removes processed changes from ChangeLog (helper.py:334)
+
+<Note>
+Manual sync only processes INSERT and UPDATE changes. DELETE operations in the ChangeLog table are not synced.
+</Note>
+
+## Error handling
+
+The manual sync function handles several error conditions:
+
+### Expired session
+
+If your Digible access token has expired:
+
+```python
+if sync == False:
+    status_label.configure(text="User Session expired please reconfigure")
+    return
+```
+
+You'll need to reconfigure your credentials in Settings to continue.
+
+### Connection issues
+
+If there's no internet connection, the sync returns `False` early (helper.py:296-297) without attempting to contact Digible's API.
+
+### API errors
+
+Exceptions during the sync process are caught and logged (helper.py:339-341), and the function returns `False` to indicate failure.
+
+<Warning>
+Always ensure you're connected to the internet and your Digible credentials are valid before performing a manual sync.
+</Warning>
+
+## Integration with automatic sync
+
+You can use manual sync independently or alongside automatic sync:
+
+- Manual sync doesn't start or stop the automatic scheduler
+- Both use the same ChangeLog table, so they won't duplicate work
+- Manual sync provides immediate feedback, while automatic sync runs silently in the background
+
+Refer to main.py:44 for the `manual_sync()` implementation.

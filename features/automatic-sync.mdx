@@ -1,0 +1,79 @@
+---
+title: Automatic sync
+description: Schedule automatic synchronization to run every 2 minutes, keeping your Digible products up to date with local database changes
+---
+
+Automatic sync runs on a scheduled interval, continuously monitoring your local database for changes and pushing them to Digible's cloud platform.
+
+## How it works
+
+When you start the sync task, shopMaster:
+
+<Steps>
+  <Step title="Initialize the sync">
+    The `start_sync_task()` function in main.py:35 creates a database connection using your configured credentials and calls `sync_data()` to perform the first sync immediately.
+  </Step>
+  
+  <Step title="Schedule recurring syncs">
+    Using the `schedule` library, the application sets up a recurring task that runs `start_sync_task()` every 2 minutes (main.py:38).
+  </Step>
+  
+  <Step title="Monitor for changes">
+    Each sync cycle queries the `ChangeLog` table for INSERT and UPDATE operations (helper.py:308-311), processes the changes, and sends them to Digible's API.
+  </Step>
+  
+  <Step title="Update status">
+    After each successful sync, the UI displays the last sync timestamp in green text (main.py:39-41).
+  </Step>
+</Steps>
+
+<Note>
+The sync runs in a background thread (main.py:300-302) so it won't block the UI, allowing you to continue working while syncs happen automatically.
+</Note>
+
+## Starting automatic sync
+
+To start automatic sync:
+
+1. Open shopMaster
+2. Navigate to the Home page
+3. Click the **Start Sync task** button
+
+The status label will display "Sync task scheduled to run every 2 minutes" and the last sync timestamp will update with each cycle.
+
+## Stopping automatic sync
+
+You can stop the scheduled sync at any time by clicking the **Stop Sync task** button. This calls `schedule.clear()` (main.py:56) to remove all scheduled jobs.
+
+<Warning>
+If your access token expires during automatic sync, the sync will fail. You'll need to reconfigure your Digible credentials in Settings to continue syncing.
+</Warning>
+
+## Background process
+
+The sync scheduler runs in a daemon thread that:
+
+- Checks for pending scheduled tasks every 10 seconds (main.py:31-32)
+- Runs independently of the main UI thread
+- Automatically terminates when you close the application
+
+## What gets synced
+
+Automatic sync processes:
+
+- **INSERT operations**: New products added to your local table
+- **UPDATE operations**: Changes to existing product information
+
+<Info>
+DELETE operations are not synced automatically. The sync process only handles INSERT and UPDATE changes from the ChangeLog table.
+</Info>
+
+## Error handling
+
+If the sync encounters issues:
+
+- **Expired token**: The function returns `False` and displays "User Session expired please reconfigure" (main.py:48)
+- **Network issues**: The `is_connected()` check (helper.py:295) prevents sync attempts when offline
+- **API errors**: Exceptions are caught and logged, but the scheduler continues running
+
+Refer to helper.py:291 for the complete `sync_data()` implementation.

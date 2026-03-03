@@ -1,0 +1,329 @@
+---
+title: SQL Server connection setup
+description: Learn how to configure and troubleshoot SQL Server connections in shopMaster
+---
+
+## Overview
+
+shopMaster connects to your local SQL Server database to track and synchronize product changes. You can use either Windows Authentication or SQL Server Authentication (username/password) to establish the connection.
+
+## Connection methods
+
+shopMaster supports two authentication methods for SQL Server:
+
+<Accordion title="Windows Authentication (Recommended)">
+  Windows Authentication uses your Windows credentials to connect to SQL Server. This is the most secure option and doesn't require you to manage separate database passwords.
+
+  **When to use:**
+  - You're running SQL Server on the same machine as shopMaster
+  - Your Windows account has access to the SQL Server instance
+  - You want seamless, secure authentication
+</Accordion>
+
+<Accordion title="SQL Server Authentication (Password)">
+  SQL Server Authentication uses a database username and password. Use this method when connecting to remote servers or when Windows Authentication isn't available.
+
+  **When to use:**
+  - You're connecting to a remote SQL Server instance
+  - Windows Authentication is not configured
+  - You need to use a specific SQL Server login account
+</Accordion>
+
+## Required information
+
+Before configuring your connection, gather the following information:
+
+<Steps>
+  <Step title="Server name">
+    The name or IP address of your SQL Server instance.
+
+    **Examples:**
+    - `localhost` or `.` for local instances
+    - `DESKTOP-ABC123\SQLEXPRESS` for named instances
+    - `192.168.1.100` for remote servers
+    - `server.domain.com\INSTANCE` for domain servers
+  </Step>
+
+  <Step title="Database name">
+    The exact name of the database containing your product table.
+
+    **Example:** `ProductsDB` or `InventorySystem`
+  </Step>
+
+  <Step title="Table name">
+    The name of the table that contains your product data. This table must have columns for:
+    - `ProductID` (VARCHAR(25))
+    - `ProductName` (VARCHAR(75))
+    - `SellPrice` (NUMERIC(18, 2))
+    - `QrCode` (VARCHAR(100))
+    - `Status` (INT)
+
+    **Example:** `Products` or `dbo.Inventory`
+  </Step>
+
+  <Step title="Authentication credentials (if using SQL Server Authentication)">
+    - **Username:** Your SQL Server login name
+    - **Password:** Your SQL Server password
+
+    <Warning>
+      Ensure your SQL Server account has the following permissions:
+      - `SELECT`, `INSERT`, `UPDATE`, `DELETE` on your product table
+      - `CREATE TABLE` permission (for the ChangeLog table)
+      - `CREATE TRIGGER` permission (for change tracking triggers)
+    </Warning>
+  </Step>
+</Steps>
+
+## How connection strings work
+
+shopMaster builds connection strings using SQLAlchemy and the ODBC Driver 17 for SQL Server. Understanding the format helps you troubleshoot connection issues.
+
+### Windows Authentication format
+
+```python
+mssql+pyodbc://:@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=yes
+```
+
+**Example:**
+```
+mssql+pyodbc://:@localhost/ProductsDB?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=yes
+```
+
+<Info>
+  The empty `:@` before the server name indicates no username or password is needed. The `Trusted_Connection=yes` parameter tells SQL Server to use Windows credentials.
+</Info>
+
+### SQL Server Authentication format
+
+```python
+mssql+pyodbc://{username}:{password}@{server_name}/{database_name}?driver=ODBC+Driver+17+for+SQL+Server
+```
+
+**Example:**
+```
+mssql+pyodbc://dbuser:SecurePass123@localhost/ProductsDB?driver=ODBC+Driver+17+for+SQL+Server
+```
+
+<Note>
+  Special characters in passwords must be URL-encoded. For example, `@` becomes `%40`, `#` becomes `%23`.
+</Note>
+
+## Testing your connection
+
+shopMaster includes a built-in connection test feature.
+
+<Steps>
+  <Step title="Open Settings">
+    Click the **Settings** button in the shopMaster sidebar.
+  </Step>
+
+  <Step title="Enter connection details">
+    Fill in your server name, database name, table name, and authentication credentials.
+  </Step>
+
+  <Step title="Click 'Test Connection'">
+    The application will attempt to connect and execute a simple query:
+
+    ```sql
+    SELECT 1
+    ```
+
+    This verifies that:
+    - The server is reachable
+    - Your credentials are valid
+    - The database exists and is accessible
+  </Step>
+
+  <Step title="Review the result">
+    You'll see one of these messages:
+    - **"Connection Successful"** - You're ready to configure
+    - **Error message** - See [Common connection errors](/guides/troubleshooting#connection-errors) for solutions
+  </Step>
+</Steps>
+
+### Connection test implementation
+
+The test executes this code (from `app/helper.py:15`):
+
+```python
+def test_connectionString(db_url):
+    try:
+        engine = create_engine(db_url)
+        with engine.connect() as connection:
+            result = connection.execute(text("SELECT 1"))
+            for row in result:
+                print("Connection successful:", row)
+                return "Connection Successful"
+    except Exception as e:
+        print("Connection failed:", e)
+        return str(e)
+```
+
+## Initial configuration
+
+After testing your connection, you need to configure shopMaster to enable change tracking.
+
+<Steps>
+  <Step title="Ensure connection test succeeds">
+    Always test your connection before clicking **Configure**.
+  </Step>
+
+  <Step title="Click 'Configure'">
+    This performs several critical setup tasks:
+
+    1. **Creates the ChangeLog table** - Stores insert, update, and delete operations
+    2. **Creates three triggers** on your product table:
+       - `trgAfterInsert` - Logs new products
+       - `trgAfterUpdate` - Logs product changes
+       - `trgAfterDelete` - Logs deleted products
+    3. **Saves configuration** to your `.env` file
+    4. **Stores your Digible access token**
+  </Step>
+
+  <Step title="Verify success">
+    You should see "Configuration Successful" message. Your database now has:
+    - A new `ChangeLog` table
+    - Three triggers on your product table
+  </Step>
+</Steps>
+
+### What happens during configuration
+
+The configuration process creates this table structure:
+
+```sql
+CREATE TABLE ChangeLog (
+    LogID INT IDENTITY(1,1) PRIMARY KEY,
+    ChangeType NVARCHAR(10),
+    ProductID VARCHAR(25),
+    ProductName VARCHAR(75),
+    SellPrice NUMERIC(18, 2),
+    QrCode VARCHAR(100),
+    Status INT,
+    ChangeDateTime DATETIME DEFAULT GETDATE()
+);
+```
+
+<Tip>
+  The ChangeLog table is automatically cleared after each successful sync. This keeps your database lean and prevents duplicate syncs.
+</Tip>
+
+## ODBC Driver requirements
+
+shopMaster requires **ODBC Driver 17 for SQL Server**. If you encounter driver-related errors, you need to install it.
+
+### Download and install
+
+1. Download from [Microsoft's official site](https://docs.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server)
+2. Run the installer
+3. Restart shopMaster after installation
+
+### Verify installation
+
+You can check which ODBC drivers are installed:
+
+**Windows:**
+1. Open **ODBC Data Sources** (search in Start menu)
+2. Go to the **Drivers** tab
+3. Look for "ODBC Driver 17 for SQL Server"
+
+**Alternative method:**
+```powershell
+Get-OdbcDriver | Where-Object {$_.Name -like "*SQL Server*"}
+```
+
+<Warning>
+  If you have ODBC Driver 18, you may need to modify the connection string or install Driver 17 alongside it. shopMaster specifically uses Driver 17.
+</Warning>
+
+## Security best practices
+
+<AccordionGroup>
+  <Accordion title="Use Windows Authentication when possible">
+    Windows Authentication is more secure because:
+    - No passwords stored in the `.env` file
+    - Leverages existing Windows security
+    - Supports multi-factor authentication if configured
+    - Easier to manage with Active Directory
+  </Accordion>
+
+  <Accordion title="Use least privilege for SQL accounts">
+    Create a dedicated SQL Server account for shopMaster with only the permissions it needs:
+
+    ```sql
+    -- Create a dedicated login
+    CREATE LOGIN shopmaster_sync WITH PASSWORD = 'StrongPassword123!';
+    
+    -- Create user in your database
+    USE ProductsDB;
+    CREATE USER shopmaster_sync FOR LOGIN shopmaster_sync;
+    
+    -- Grant minimum required permissions
+    GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Products TO shopmaster_sync;
+    GRANT CREATE TABLE TO shopmaster_sync;
+    GRANT ALTER ON SCHEMA::dbo TO shopmaster_sync;
+    ```
+  </Accordion>
+
+  <Accordion title="Protect your .env file">
+    The `.env` file stores sensitive information:
+    - Database connection strings
+    - SQL Server passwords (if using SQL Auth)
+    - Digible API access tokens
+
+    **Security measures:**
+    - Never commit `.env` to version control
+    - Restrict file permissions (Windows: only your user account)
+    - Store backups securely
+    - Rotate passwords regularly
+  </Accordion>
+
+  <Accordion title="Use encrypted connections for remote databases">
+    If connecting to a remote SQL Server, enable encryption:
+
+    1. Configure SSL/TLS on SQL Server
+    2. Modify connection string to include:
+       ```
+       &Encrypt=yes&TrustServerCertificate=no
+       ```
+  </Accordion>
+</AccordionGroup>
+
+## Connection string examples
+
+### Local SQL Server Express (Windows Auth)
+```
+mssql+pyodbc://:@localhost\SQLEXPRESS/ProductsDB?driver=ODBC+Driver+17+for+SQL+Server&Trusted_Connection=yes
+```
+
+### Local SQL Server (SQL Auth)
+```
+mssql+pyodbc://sa:MyPassword123@localhost/ProductsDB?driver=ODBC+Driver+17+for+SQL+Server
+```
+
+### Remote SQL Server with instance name
+```
+mssql+pyodbc://dbuser:SecurePass@192.168.1.100\PRODUCTION/ProductsDB?driver=ODBC+Driver+17+for+SQL+Server
+```
+
+### Remote SQL Server with port number
+```
+mssql+pyodbc://dbuser:SecurePass@server.company.com,1433/ProductsDB?driver=ODBC+Driver+17+for+SQL+Server
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Start syncing" icon="rotate" href="/quickstart#start-sync">
+    Begin synchronizing your product data with Digible
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Solve common connection and sync issues
+  </Card>
+  <Card title="Best practices" icon="star" href="/guides/best-practices">
+    Optimize your shopMaster deployment
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/connection">
+    Explore connection functions
+  </Card>
+</CardGroup>

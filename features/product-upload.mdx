@@ -1,0 +1,168 @@
+---
+title: Product upload
+description: Perform a complete batch upload of all products from your local database to Digible
+---
+
+Product upload sends all products from your local SQL Server database to Digible in a single batch operation. This is useful for initial setup or full data synchronization.
+
+## How it works
+
+The `sendBatchContent()` function (helper.py:140) performs a complete upload of your entire product catalog:
+
+<Steps>
+  <Step title="Validate authentication">
+    The function first checks if your access token has expired using `is_token_expired()` (helper.py:143-144).
+  </Step>
+  
+  <Step title="Fetch all products">
+    shopMaster queries your local table and fetches all products with `SELECT * FROM {local_table}` (helper.py:160-165).
+  </Step>
+  
+  <Step title="Process in batches">
+    Products are sent in batches of 200 to avoid overloading the API (helper.py:141, 175-176).
+  </Step>
+  
+  <Step title="Transform data">
+    Each product is converted to Digible's expected format with productName, productPrice, and productId fields (helper.py:177-183).
+  </Step>
+  
+  <Step title="Send to Digible">
+    Each batch is posted to `https://api.digible.one/v1/business/stores/product/sync` with your access token (helper.py:146, 186).
+  </Step>
+</Steps>
+
+<Info>
+Product upload is different from sync. While sync only sends changes from the ChangeLog table, product upload sends your entire product catalog regardless of recent changes.
+</Info>
+
+## Initiating product upload
+
+To upload all products:
+
+1. Open shopMaster
+2. Navigate to the **Settings** page
+3. Scroll down and click the **Upload Products** button (main.py:243-244)
+4. Wait for the confirmation message
+
+## Batch processing
+
+Products are uploaded in batches to ensure reliable transmission:
+
+```python
+batch_size = 200
+
+for i in range(0, len(products), batch_size):
+    batch_products = products[i:i + batch_size]
+    # Transform and send batch
+```
+
+<Note>
+The batch size of 200 products is optimized for Digible's API. Processing happens sequentially to ensure data integrity.
+</Note>
+
+## Data transformation
+
+Each product from your local database is transformed before upload:
+
+| Local Field | Digible Field | Transformation |
+|-------------|---------------|----------------|
+| ProductName | productName | Direct mapping |
+| SellPrice | productPrice | Converted to string |
+| ProductID | productId | Direct mapping |
+
+The transformation happens in helper.py:177-183:
+
+```python
+product_list = [
+    {
+        "productName": product['ProductName'],
+        "productPrice": str(product['SellPrice']),
+        "productId": product['ProductID']
+    } for product in batch_products
+]
+```
+
+## Response handling
+
+After each batch is sent, shopMaster:
+
+1. Checks the HTTP status code (helper.py:189)
+2. Logs the response content (helper.py:190)
+3. Returns an error if status is not 200 (helper.py:191-193)
+4. Parses the JSON response for each batch (helper.py:195-200)
+
+<Warning>
+If any batch fails, the upload process returns immediately with an error message. You may need to retry the upload to ensure all products are synchronized.
+</Warning>
+
+## When to use product upload
+
+Use product upload in these scenarios:
+
+- **Initial setup**: When first connecting your database to Digible
+- **Full resync**: If you suspect data discrepancies between local and cloud
+- **After major changes**: When you've made bulk updates to your product catalog
+- **Recovery**: After resolving sync issues or reconfiguring your connection
+
+<Tabs>
+  <Tab title="Product upload">
+    - Sends all products
+    - Ignores ChangeLog table
+    - Processes in 200-product batches
+    - Manual operation only
+    - Use for full synchronization
+  </Tab>
+  
+  <Tab title="Regular sync">
+    - Sends only changes
+    - Reads from ChangeLog table
+    - Processes individual changes
+    - Can be automatic or manual
+    - Use for ongoing updates
+  </Tab>
+</Tabs>
+
+## Error scenarios
+
+### Expired session
+
+If `is_token_expired()` returns `True`, the function returns immediately (helper.py:143-144):
+
+```python
+if is_token_expired():
+    return True
+```
+
+You'll see a message: "User session expired, Please Reconfigure"
+
+### Invalid JSON response
+
+If the server returns non-JSON data (helper.py:198-200):
+
+```python
+except ValueError:
+    print("Response is not valid JSON")
+    return {"message": "Invalid JSON response from the server"}
+```
+
+### Connection errors
+
+General exceptions are caught and returned as error messages (helper.py:204-206).
+
+<Info>
+The upload function is called by the `upload_data()` wrapper in main.py:230, which displays the result in a message box.
+</Info>
+
+## API endpoint
+
+Product uploads are sent to:
+
+```
+POST https://api.digible.one/v1/business/stores/product/sync
+```
+
+With headers:
+- `x-access-token`: Your Digible access token
+- `Content-Type`: application/json
+
+Refer to helper.py:140 for the complete `sendBatchContent()` implementation.

@@ -1,80 +1,283 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Configure shopMaster and sync your first products to Digible in minutes
 ---
 
-## Get started in three steps
+This guide walks you through the complete setup process, from launching shopMaster to your first successful sync.
 
-Get your documentation site running locally and make your first customization.
+## Before you begin
 
-### Step 1: Set up your local environment
+Make sure you have:
+
+- shopMaster installed on your Windows machine
+- Your SQL Server connection details (server name, database name, authentication method)
+- Your Digible account credentials (email and password)
+- The name of your product table in SQL Server
+
+<Info>
+  Your product table should have columns for `ProductID`, `ProductName`, `SellPrice`, `QrCode`, and `Status` to work with shopMaster.
+</Info>
+
+## Step 1: Launch shopMaster
+
+<Steps>
+  <Step title="Open the application">
+    Double-click `shopMaster.exe` (or run `python main.py` if running from source).
+    
+    The shopMaster window will open with two tabs: **Home** and **Settings**.
+  </Step>
+  
+  <Step title="Navigate to Settings">
+    Click the **Settings** button in the left sidebar to access the configuration page.
+  </Step>
+</Steps>
+
+## Step 2: Configure Digible credentials
+
+Connect shopMaster to your Digible cloud account.
+
+<Steps>
+  <Step title="Enter your Digible email">
+    In the **Digible Email** field, enter the email address associated with your Digible business account.
+  </Step>
+  
+  <Step title="Enter your Digible password">
+    In the **Digible Password** field, enter your Digible account password.
+    
+    <Note>
+      Your password is stored locally in an `.env` file and is only used to authenticate with Digible's API at `api.digible.one/v1/business/account/auth/login`.
+    </Note>
+  </Step>
+</Steps>
+
+## Step 3: Configure SQL Server connection
+
+Set up the connection to your local SQL Server database.
+
+<Steps>
+  <Step title="Enter server name">
+    In the **Server Name** field, enter your SQL Server instance name. Examples:
+    - `localhost` for a local instance
+    - `localhost\SQLEXPRESS` for SQL Server Express
+    - `192.168.1.100` for a network server
+  </Step>
+  
+  <Step title="Enter database name">
+    In the **Database Name** field, enter the name of the database containing your product table.
+  </Step>
+  
+  <Step title="Enter product table name">
+    In the **Local Table Name** field, enter the exact name of your product table (e.g., `Products`, `Inventory`, `Items`).
+  </Step>
+  
+  <Step title="Choose authentication method">
+    From the **Security** dropdown, select your authentication method:
+    
+    - **Windows Authentication** - Use your Windows credentials (recommended for local servers)
+    - **Password** - Use SQL Server authentication
+    
+    If you select **Password**, two additional fields will appear:
+    - **Username** - Your SQL Server username
+    - **Password** - Your SQL Server password
+  </Step>
+</Steps>
+
+## Step 4: Test connections
+
+Verify that shopMaster can connect to both your database and Digible.
+
+<Steps>
+  <Step title="Click Test Connection">
+    Click the **Test Connection** button at the bottom of the Settings page.
+  </Step>
+  
+  <Step title="Review the results">
+    A dialog box will appear showing the connection status for both:
+    - **Local db** - Your SQL Server connection
+    - **Digible login** - Your Digible API authentication
+    
+    Both should show success messages. If either fails, review your credentials and try again.
+  </Step>
+</Steps>
+
+<Warning>
+  If the local database connection fails, verify that:
+  - SQL Server is running
+  - ODBC Driver 17 for SQL Server is installed
+  - Your firewall allows SQL Server connections
+  - Your authentication credentials are correct
+</Warning>
+
+## Step 5: Configure database triggers
+
+shopMaster uses database triggers to track changes automatically.
+
+<Steps>
+  <Step title="Click Configure">
+    After successful connection tests, click the **Configure** button.
+  </Step>
+  
+  <Step title="Wait for configuration">
+    shopMaster will:
+    - Create a `ChangeLog` table in your database (if it doesn't exist)
+    - Create three triggers on your product table:
+      - `trgAfterInsert` - Tracks new products (see `app/helper.py:57`)
+      - `trgAfterUpdate` - Tracks product updates (see `app/helper.py:74`)
+      - `trgAfterDelete` - Tracks deleted products (see `app/helper.py:92`)
+    - Save your configuration to a `.env` file
+    
+    You'll see a "Configuration Successful" message when complete.
+  </Step>
+</Steps>
+
+<Info>
+  The ChangeLog table stores changes temporarily before syncing them to Digible. After each successful sync, the log is automatically cleared.
+</Info>
+
+## Step 6: Upload existing products (optional)
+
+If you have existing products in your database, upload them to Digible before starting automatic sync.
+
+<Steps>
+  <Step title="Click Upload Products">
+    In the Settings page, click the **Upload Products** button.
+  </Step>
+  
+  <Step title="Wait for upload">
+    shopMaster will:
+    - Fetch all products from your product table
+    - Send them to Digible in batches of 200 products
+    - Display a success message when complete
+    
+    This may take a few minutes depending on the size of your catalog.
+  </Step>
+</Steps>
+
+<Note>
+  The batch size is set to 200 products per request in `app/helper.py:141`. This ensures efficient uploads without overwhelming the API.
+</Note>
+
+## Step 7: Start automatic sync
+
+Enable automatic synchronization to keep your databases in sync.
+
+<Steps>
+  <Step title="Go to Home">
+    Click the **Home** button in the left sidebar to return to the main page.
+  </Step>
+  
+  <Step title="Start the sync task">
+    Click the **Start Sync task** button.
+    
+    shopMaster will:
+    - Perform an immediate sync
+    - Schedule automatic syncs every 2 minutes
+    - Display the last sync time and status
+  </Step>
+  
+  <Step title="Verify sync is running">
+    You should see:
+    - "Last Sync" timestamp updated
+    - "Sync task scheduled to run every 2 minutes" in green text
+  </Step>
+</Steps>
+
+## Step 8: Test the sync
+
+Verify that changes to your database are being synced to Digible.
+
+<Steps>
+  <Step title="Make a change in SQL Server">
+    Update a product in your SQL Server database:
+    
+    ```sql
+    UPDATE Products
+    SET SellPrice = 29.99
+    WHERE ProductID = 'PROD001';
+    ```
+  </Step>
+  
+  <Step title="Wait for sync">
+    Wait up to 2 minutes for the next scheduled sync, or click **Sync now** for an immediate sync.
+  </Step>
+  
+  <Step title="Check Digible">
+    Log into your Digible business account and verify that the product price was updated in the cloud.
+  </Step>
+</Steps>
+
+<Info>
+  During sync, shopMaster:
+  - Reads all changes from the ChangeLog table (see `app/helper.py:291`)
+  - Sends INSERT operations to `/v1/business/stores/product/sync`
+  - Sends UPDATE operations to `/v1/business/stores/product/external/update`
+  - Clears the ChangeLog after successful sync (see `app/helper.py:334`)
+</Info>
+
+## Using manual sync
+
+You can trigger a sync anytime without waiting for the scheduled interval:
+
+- Click **Sync now** on the Home page
+- The sync will execute immediately and update the "Last Sync" timestamp
+- Any pending changes in the ChangeLog will be sent to Digible
+
+## Stopping the sync
+
+To temporarily stop automatic synchronization:
+
+- Click **Stop Sync task** on the Home page
+- Scheduled syncs will be cancelled
+- You can still use **Sync now** for manual syncs
+- Click **Start Sync task** again to resume automatic syncs
+
+## Troubleshooting
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+  <Accordion title="Session expired error">
+    If you see "User session expired, please reconfigure":
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+    1. Go to Settings
+    2. Re-enter your Digible password
+    3. Click **Configure** to get a fresh access token
+    
+    shopMaster uses JWT tokens that expire after a period. Reconfiguring will generate a new token.
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+  
+  <Accordion title="Connection refused">
+    If sync fails with connection errors:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    - Verify your internet connection (shopMaster checks connectivity via `app/check_connection.py:3`)
+    - Check if Digible's API at `api.digible.one` is accessible
+    - Ensure your firewall allows outbound HTTPS connections
   </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+  
+  <Accordion title="No changes being synced">
+    If changes aren't appearing in Digible:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
+    - Verify the triggers are installed: Check for `trgAfterInsert`, `trgAfterUpdate`, and `trgAfterDelete` in SQL Server
+    - Check the ChangeLog table: `SELECT * FROM ChangeLog` should show recent changes
+    - Review the application output for error messages
   </Accordion>
 </AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you have shopMaster up and running:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="Configuration guide"
+    icon="gear"
+    href="/configuration/database-setup"
+  >
+    Learn about advanced configuration options and customization
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/connection"
+  >
+    Explore the internal functions used by shopMaster
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

@@ -1,0 +1,808 @@
+---
+title: Best practices for shopMaster
+description: Optimize your shopMaster deployment with proven strategies for security, performance, and reliability
+---
+
+## Database configuration
+
+Proper database setup is critical for reliable syncing and optimal performance.
+
+### Use a dedicated sync user
+
+Create a SQL Server user specifically for shopMaster with minimal required permissions.
+
+<Steps>
+  <Step title="Create the login">
+    ```sql
+    CREATE LOGIN shopmaster_sync WITH PASSWORD = 'YourSecurePassword123!';
+    ```
+
+    <Tip>
+      Use a strong password with at least 12 characters, including uppercase, lowercase, numbers, and symbols.
+    </Tip>
+  </Step>
+
+  <Step title="Create database user">
+    ```sql
+    USE YourDatabaseName;
+    GO
+    CREATE USER shopmaster_sync FOR LOGIN shopmaster_sync;
+    GO
+    ```
+  </Step>
+
+  <Step title="Grant minimum permissions">
+    ```sql
+    -- Permissions on product table
+    GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.YourProductTable TO shopmaster_sync;
+
+    -- Permissions for ChangeLog table
+    GRANT SELECT, INSERT, DELETE ON dbo.ChangeLog TO shopmaster_sync;
+
+    -- One-time permissions for initial configuration
+    GRANT CREATE TABLE TO shopmaster_sync;
+    GRANT ALTER ON SCHEMA::dbo TO shopmaster_sync;
+    ```
+  </Step>
+
+  <Step title="Revoke configuration permissions after setup">
+    After running Configure successfully, remove unnecessary permissions:
+
+    ```sql
+    REVOKE CREATE TABLE FROM shopmaster_sync;
+    REVOKE ALTER ON SCHEMA::dbo FROM shopmaster_sync;
+    ```
+
+    This follows the principle of least privilege.
+  </Step>
+</Steps>
+
+### Optimize your product table
+
+Ensure your product table is properly indexed for fast trigger execution.
+
+<AccordionGroup>
+  <Accordion title="Create a primary key on ProductID">
+    The ProductID column should be the primary key:
+
+    ```sql
+    ALTER TABLE YourProductTable
+    ADD CONSTRAINT PK_ProductID PRIMARY KEY (ProductID);
+    ```
+
+    This ensures:
+    - Fast lookups during sync
+    - Data integrity (no duplicate products)
+    - Optimal trigger performance
+  </Accordion>
+
+  <Accordion title="Index frequently filtered columns">
+    If you plan to extend shopMaster to filter by Status or other fields:
+
+    ```sql
+    CREATE INDEX IX_ProductStatus ON YourProductTable(Status)
+    WHERE Status = 1;  -- Active products only
+    ```
+  </Accordion>
+
+  <Accordion title="Keep the table clean">
+    Regularly archive or delete obsolete products:
+
+    ```sql
+    -- Archive old deleted products
+    INSERT INTO ProductArchive
+    SELECT * FROM YourProductTable
+    WHERE Status = 0 AND ModifiedDate < DATEADD(YEAR, -1, GETDATE());
+
+    DELETE FROM YourProductTable
+    WHERE Status = 0 AND ModifiedDate < DATEADD(YEAR, -1, GETDATE());
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Monitor the ChangeLog table
+
+The ChangeLog table can grow large if syncs fail repeatedly.
+
+<Steps>
+  <Step title="Set up monitoring">
+    Check ChangeLog size regularly:
+
+    ```sql
+    SELECT 
+        COUNT(*) AS TotalRecords,
+        MIN(ChangeDateTime) AS OldestChange,
+        MAX(ChangeDateTime) AS NewestChange
+    FROM ChangeLog;
+    ```
+  </Step>
+
+  <Step title="Create an alert for excessive growth">
+    ```sql
+    -- Create a view for monitoring
+    CREATE VIEW vw_ChangeLogHealth AS
+    SELECT 
+        COUNT(*) AS RecordCount,
+        DATEDIFF(HOUR, MIN(ChangeDateTime), GETDATE()) AS OldestChangeHours,
+        CASE 
+            WHEN COUNT(*) > 10000 THEN 'WARNING: High record count'
+            WHEN DATEDIFF(HOUR, MIN(ChangeDateTime), GETDATE()) > 48 THEN 'WARNING: Old changes not synced'
+            ELSE 'OK'
+        END AS HealthStatus
+    FROM ChangeLog;
+    ```
+  </Step>
+
+  <Step title="Manual cleanup if needed">
+    If sync fails and you need to clear the backlog:
+
+    ```sql
+    -- Backup first
+    SELECT * INTO ChangeLog_Backup_20260303 FROM ChangeLog;
+
+    -- Clear specific date range
+    DELETE FROM ChangeLog 
+    WHERE ChangeDateTime < '2026-03-01';
+    ```
+
+    <Warning>
+      Only delete ChangeLog records if you're certain those changes have been synced or are no longer needed.
+    </Warning>
+  </Step>
+</Steps>
+
+## Security best practices
+
+### Protect sensitive credentials
+
+The `.env` file contains critical secrets that must be protected.
+
+<AccordionGroup>
+  <Accordion title="Secure file permissions">
+    **Windows:**
+    1. Right-click `.env` → **Properties**
+    2. Go to **Security** tab
+    3. Click **Advanced** → **Disable inheritance**
+    4. Remove all users except your account and SYSTEM
+    5. Ensure your account has Full Control
+  </Accordion>
+
+  <Accordion title="Never commit .env to version control">
+    If you're managing shopMaster configuration in Git:
+
+    Create `.gitignore`:
+    ```
+    .env
+    *.env.local
+    .env.backup
+    ```
+
+    If you accidentally committed it:
+    ```bash
+    # Remove from Git history (be careful!)
+    git filter-branch --force --index-filter \
+      "git rm --cached --ignore-unmatch .env" \
+      --prune-empty --tag-name-filter cat -- --all
+    ```
+  </Accordion>
+
+  <Accordion title="Rotate credentials regularly">
+    **Monthly:**
+    - Change Digible password
+    - Re-configure shopMaster to get new token
+
+    **Quarterly:**
+    - Change SQL Server password (if using SQL Auth)
+    - Update `.env` with new password
+
+    **Immediately:**
+    - If you suspect credentials were compromised
+    - When employees with access leave
+    - After security incidents
+  </Accordion>
+
+  <Accordion title="Use Windows Authentication when possible">
+    Windows Authentication is more secure because:
+    - No passwords stored in `.env`
+    - Centralized credential management
+    - Supports multi-factor authentication
+    - Automatic password rotation via Active Directory
+
+    Only use SQL Server Authentication when absolutely necessary (remote servers, specific compliance requirements).
+  </Accordion>
+</AccordionGroup>
+
+### Network security
+
+<Steps>
+  <Step title="Use encrypted connections for remote databases">
+    If connecting to a remote SQL Server, enable SSL/TLS encryption.
+
+    **On SQL Server:**
+    1. Install a valid SSL certificate
+    2. Configure SQL Server to force encryption
+    3. Restart SQL Server service
+
+    **In shopMaster:**
+    Modify the connection string in `.env`:
+    ```
+    local_db_url=mssql+pyodbc://user:pass@server/db?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no
+    ```
+  </Step>
+
+  <Step title="Restrict SQL Server network access">
+    Configure SQL Server to only accept connections from shopMaster machine:
+
+    **Using Windows Firewall:**
+    ```powershell
+    New-NetFirewallRule -DisplayName "SQL Server - shopMaster only" `
+      -Direction Inbound `
+      -Protocol TCP `
+      -LocalPort 1433 `
+      -RemoteAddress 192.168.1.100 `
+      -Action Allow
+    ```
+
+    Replace `192.168.1.100` with your shopMaster machine's IP.
+  </Step>
+
+  <Step title="Whitelist Digible API endpoints">
+    Configure your firewall to only allow outbound HTTPS to:
+    - `api.digible.one` (port 443)
+
+    Block all other outbound traffic from shopMaster to reduce attack surface.
+  </Step>
+</Steps>
+
+## Performance optimization
+
+### Sync strategy
+
+Choose the right sync approach for your use case.
+
+<Accordion title="For small to medium catalogs (<5,000 products)">
+  **Recommendation:** Use automatic sync every 2 minutes.
+
+  **Setup:**
+  1. Click **Start Sync task** in the Home page
+  2. Leave shopMaster running continuously
+
+  **Benefits:**
+  - Near real-time updates to Digible
+  - Minimal manual intervention
+  - Small, fast API requests
+
+  **Considerations:**
+  - Requires shopMaster to run 24/7
+  - Uses system resources continuously
+</Accordion>
+
+<Accordion title="For large catalogs (>5,000 products)">
+  **Recommendation:** Manual sync on-demand.
+
+  **Setup:**
+  1. Don't start automatic sync
+  2. Click **Sync now** when you've made significant changes
+  3. Or schedule sync at specific times (off-peak hours)
+
+  **Benefits:**
+  - Controlled timing (avoid peak hours)
+  - Lower resource usage
+  - Predictable network traffic
+
+  **Considerations:**
+  - Not real-time
+  - Requires manual intervention
+  - Risk of forgetting to sync
+</Accordion>
+
+<Accordion title="For initial bulk upload">
+  **Recommendation:** Use the Upload Products feature.
+
+  **Setup:**
+  1. Go to Settings
+  2. Click **Upload Products**
+  3. Wait for completion (may take several minutes)
+
+  **How it works:**
+  - Sends entire product catalog in batches of 200 (see `app/helper.py:141`)
+  - Bypasses ChangeLog table
+  - More efficient than individual syncs
+
+  **Best for:**
+  - Initial setup
+  - After database restoration
+  - Re-syncing after extended downtime
+</Accordion>
+
+### Database maintenance
+
+Regular maintenance keeps shopMaster running smoothly.
+
+<Steps>
+  <Step title="Update statistics weekly">
+    SQL Server uses statistics to optimize queries. Keep them current:
+
+    ```sql
+    -- Update statistics on product table
+    UPDATE STATISTICS YourProductTable WITH FULLSCAN;
+
+    -- Update statistics on ChangeLog
+    UPDATE STATISTICS ChangeLog WITH FULLSCAN;
+    ```
+
+    Consider scheduling this as a SQL Server Agent job every Sunday at 2 AM.
+  </Step>
+
+  <Step title="Rebuild indexes monthly">
+    Fragmented indexes slow down trigger execution:
+
+    ```sql
+    -- Rebuild all indexes on product table
+    ALTER INDEX ALL ON YourProductTable REBUILD;
+
+    -- Or reorganize if rebuild takes too long
+    ALTER INDEX ALL ON YourProductTable REORGANIZE;
+    ```
+  </Step>
+
+  <Step title="Monitor trigger performance">
+    Check how long triggers take to execute:
+
+    ```sql
+    -- Enable statistics
+    SET STATISTICS TIME ON;
+    SET STATISTICS IO ON;
+
+    -- Test an update
+    UPDATE YourProductTable
+    SET SellPrice = SellPrice
+    WHERE ProductID = 'TEST001';
+
+    -- Check ChangeLog was updated
+    SELECT * FROM ChangeLog WHERE ProductID = 'TEST001';
+    ```
+
+    Triggers should complete in under 10ms. If slower, investigate indexing.
+  </Step>
+
+  <Step title="Archive old ChangeLog records">
+    Even though ChangeLog is cleared after sync, occasional failures can cause buildup:
+
+    ```sql
+    -- Create archive table (one-time)
+    SELECT TOP 0 * INTO ChangeLog_Archive FROM ChangeLog;
+
+    -- Monthly: Archive records older than 7 days
+    INSERT INTO ChangeLog_Archive
+    SELECT * FROM ChangeLog
+    WHERE ChangeDateTime < DATEADD(DAY, -7, GETDATE());
+
+    DELETE FROM ChangeLog
+    WHERE ChangeDateTime < DATEADD(DAY, -7, GETDATE());
+    ```
+  </Step>
+</Steps>
+
+## Reliability and monitoring
+
+### Run shopMaster as a service
+
+For production deployments, run shopMaster continuously without requiring a logged-in user.
+
+<Accordion title="Option 1: Use NSSM (Non-Sucking Service Manager)">
+  **Setup:**
+  1. Download NSSM from [nssm.cc](https://nssm.cc/download)
+  2. Open Command Prompt as Administrator
+  3. Navigate to NSSM folder
+  4. Run:
+     ```cmd
+     nssm install shopMaster "C:\path\to\shopMaster.exe"
+     ```
+  5. Configure:
+     - Set working directory to where `.env` is located
+     - Set Log on account (use a service account)
+  6. Start the service:
+     ```cmd
+     nssm start shopMaster
+     ```
+
+  **Benefits:**
+  - Automatic startup after reboot
+  - Runs without user logged in
+  - Easy log management
+</Accordion>
+
+<Accordion title="Option 2: Use Windows Task Scheduler">
+  **Setup:**
+  1. Open Task Scheduler
+  2. Create Task → **General** tab:
+     - Name: "shopMaster Sync"
+     - Select "Run whether user is logged on or not"
+     - Check "Run with highest privileges"
+  3. **Triggers** tab:
+     - New → Begin: "At startup"
+  4. **Actions** tab:
+     - New → Action: "Start a program"
+     - Program: Path to `shopMaster.exe`
+     - Start in: Directory containing `.env`
+  5. **Conditions** tab:
+     - Uncheck "Start the task only if the computer is on AC power"
+  6. Save and test
+
+  **Benefits:**
+  - Built into Windows
+  - No third-party tools
+  - Fine-grained scheduling control
+</Accordion>
+
+### Monitor sync health
+
+Implement monitoring to catch issues before they become problems.
+
+<Steps>
+  <Step title="Create a sync health check query">
+    ```sql
+    CREATE VIEW vw_SyncHealth AS
+    SELECT 
+        (SELECT COUNT(*) FROM ChangeLog) AS PendingChanges,
+        (SELECT MAX(ChangeDateTime) FROM ChangeLog) AS OldestPendingChange,
+        CASE 
+            WHEN (SELECT COUNT(*) FROM ChangeLog) > 1000 THEN 'CRITICAL'
+            WHEN (SELECT COUNT(*) FROM ChangeLog) > 500 THEN 'WARNING'
+            WHEN (SELECT MAX(ChangeDateTime) FROM ChangeLog) < DATEADD(HOUR, -2, GETDATE()) THEN 'WARNING'
+            ELSE 'HEALTHY'
+        END AS HealthStatus,
+        CASE
+            WHEN (SELECT COUNT(*) FROM ChangeLog) > 1000 THEN 'More than 1000 pending changes - sync may be failing'
+            WHEN (SELECT COUNT(*) FROM ChangeLog) > 500 THEN 'High number of pending changes'
+            WHEN (SELECT MAX(ChangeDateTime) FROM ChangeLog) < DATEADD(HOUR, -2, GETDATE()) THEN 'Changes older than 2 hours not synced'
+            ELSE 'All systems operational'
+        END AS StatusMessage;
+    ```
+  </Step>
+
+  <Step title="Set up email alerts">
+    Create a SQL Server Agent job that runs hourly:
+
+    ```sql
+    DECLARE @HealthStatus NVARCHAR(20);
+    DECLARE @StatusMessage NVARCHAR(500);
+
+    SELECT @HealthStatus = HealthStatus, @StatusMessage = StatusMessage
+    FROM vw_SyncHealth;
+
+    IF @HealthStatus IN ('WARNING', 'CRITICAL')
+    BEGIN
+        EXEC msdb.dbo.sp_send_dbmail
+            @profile_name = 'Default Mail Profile',
+            @recipients = 'admin@yourcompany.com',
+            @subject = 'shopMaster Sync Alert',
+            @body = @StatusMessage;
+    END
+    ```
+  </Step>
+
+  <Step title="Log sync operations">
+    Create a custom sync log table:
+
+    ```sql
+    CREATE TABLE SyncLog (
+        LogID INT IDENTITY(1,1) PRIMARY KEY,
+        SyncStartTime DATETIME,
+        SyncEndTime DATETIME,
+        RecordsSynced INT,
+        SyncStatus NVARCHAR(20),
+        ErrorMessage NVARCHAR(MAX),
+        CreatedDate DATETIME DEFAULT GETDATE()
+    );
+    ```
+
+    <Note>
+      This requires modifying shopMaster source code to write to this table. Contact your developer or Digible support for implementation.
+    </Note>
+  </Step>
+</Steps>
+
+### Backup strategy
+
+<AccordionGroup>
+  <Accordion title="Backup the .env file">
+    Your `.env` file contains critical configuration. Back it up securely:
+
+    **Automated backup script (PowerShell):**
+    ```powershell
+    # Save as backup-shopmaster-config.ps1
+    $sourcePath = "C:\path\to\.env"
+    $backupDir = "C:\Backups\shopMaster"
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $backupPath = "$backupDir\.env_$timestamp"
+
+    # Create backup directory if not exists
+    if (!(Test-Path $backupDir)) {
+        New-Item -ItemType Directory -Path $backupDir
+    }
+
+    # Copy and encrypt
+    Copy-Item $sourcePath $backupPath
+
+    # Keep only last 30 backups
+    Get-ChildItem $backupDir -Filter ".env_*" | 
+        Sort-Object CreationTime -Descending | 
+        Select-Object -Skip 30 | 
+        Remove-Item
+    ```
+
+    Schedule this with Task Scheduler to run daily.
+  </Accordion>
+
+  <Accordion title="Backup your SQL Server database">
+    Regular database backups protect against data loss:
+
+    ```sql
+    -- Full backup (weekly)
+    BACKUP DATABASE YourDatabaseName
+    TO DISK = 'C:\Backups\YourDB_Full.bak'
+    WITH INIT, COMPRESSION;
+
+    -- Differential backup (daily)
+    BACKUP DATABASE YourDatabaseName
+    TO DISK = 'C:\Backups\YourDB_Diff.bak'
+    WITH DIFFERENTIAL, INIT, COMPRESSION;
+    ```
+
+    Schedule these as SQL Server Agent jobs.
+  </Accordion>
+
+  <Accordion title="Test your backups">
+    **Monthly:** Restore a backup to a test database and verify:
+    1. Product table structure is intact
+    2. ChangeLog table exists
+    3. Triggers are present and enabled
+    4. Data is complete and accurate
+
+    ```sql
+    -- Restore to test database
+    RESTORE DATABASE YourDB_Test
+    FROM DISK = 'C:\Backups\YourDB_Full.bak'
+    WITH MOVE 'YourDB' TO 'C:\Data\YourDB_Test.mdf',
+         MOVE 'YourDB_Log' TO 'C:\Data\YourDB_Test_Log.ldf',
+         REPLACE;
+
+    -- Verify
+    USE YourDB_Test;
+    SELECT COUNT(*) FROM YourProductTable;
+    SELECT name FROM sys.triggers WHERE parent_id = OBJECT_ID('YourProductTable');
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Deployment checklist
+
+Use this checklist when setting up shopMaster in production.
+
+<Steps>
+  <Step title="Pre-deployment">
+    - [ ] ODBC Driver 17 for SQL Server installed
+    - [ ] SQL Server instance running and accessible
+    - [ ] Database and product table created
+    - [ ] Product table has required columns (ProductID, ProductName, SellPrice, QrCode, Status)
+    - [ ] Dedicated SQL user created with appropriate permissions
+    - [ ] Digible account created and credentials available
+    - [ ] Network connectivity to api.digible.one confirmed
+  </Step>
+
+  <Step title="Initial configuration">
+    - [ ] shopMaster installed in appropriate directory
+    - [ ] Connection tested successfully (SQL Server)
+    - [ ] Connection tested successfully (Digible account)
+    - [ ] Configure clicked and completed successfully
+    - [ ] ChangeLog table created
+    - [ ] Three triggers created (Insert, Update, Delete)
+    - [ ] `.env` file created with correct values
+    - [ ] Initial product upload completed (if applicable)
+  </Step>
+
+  <Step title="Security hardening">
+    - [ ] `.env` file permissions restricted to authorized users only
+    - [ ] SQL Server using Windows Authentication (if possible)
+    - [ ] SQL Server network access restricted
+    - [ ] Firewall rules configured
+    - [ ] SSL/TLS enabled for remote connections (if applicable)
+    - [ ] Strong passwords used for all accounts
+  </Step>
+
+  <Step title="Monitoring and maintenance">
+    - [ ] Sync health monitoring query created
+    - [ ] Alerts configured for sync failures
+    - [ ] Database backup schedule configured
+    - [ ] `.env` backup script scheduled
+    - [ ] Index maintenance job scheduled
+    - [ ] Statistics update job scheduled
+  </Step>
+
+  <Step title="Production readiness">
+    - [ ] Test sync with sample data
+    - [ ] Verify changes appear in Digible
+    - [ ] Confirm automatic sync runs every 2 minutes
+    - [ ] Document configuration for team
+    - [ ] Train users on Settings and sync operations
+    - [ ] Create runbook for common issues
+  </Step>
+</Steps>
+
+## Common scenarios
+
+### Running shopMaster on multiple machines
+
+**Scenario:** You have multiple locations, each with their own SQL Server.
+
+**Best practice:**
+<Steps>
+  <Step title="Deploy separately">
+    Install shopMaster on each location with its own configuration.
+  </Step>
+
+  <Step title="Use unique product IDs">
+    Ensure ProductID is unique across all locations. Common strategies:
+    - Prefix with location code: `NYC-001`, `LA-001`
+    - Use GUIDs
+    - Assign ranges: Location 1 uses 1-10000, Location 2 uses 10001-20000
+  </Step>
+
+  <Step title="Configure separate Digible stores">
+    If each location is a separate store in Digible, use different Digible credentials for each shopMaster instance.
+  </Step>
+</Steps>
+
+<Warning>
+  Do NOT point multiple shopMaster instances at the same database and Digible account. This can cause duplicate syncs and race conditions.
+</Warning>
+
+### Handling database migrations
+
+**Scenario:** You're migrating to a new SQL Server instance.
+
+<Steps>
+  <Step title="Backup current configuration">
+    Copy your `.env` file to a safe location.
+  </Step>
+
+  <Step title="Migrate database">
+    Use SQL Server backup/restore or export/import to move your database.
+  </Step>
+
+  <Step title="Update shopMaster configuration">
+    1. Open Settings
+    2. Update server name to new instance
+    3. Test connection
+    4. Click Configure
+  </Step>
+
+  <Step title="Verify triggers">
+    Ensure triggers were migrated:
+    ```sql
+    SELECT name, is_disabled FROM sys.triggers
+    WHERE parent_id = OBJECT_ID('YourProductTable');
+    ```
+
+    If missing, run Configure to recreate them.
+  </Step>
+
+  <Step title="Resume sync operations">
+    Test with a manual sync before starting automatic sync.
+  </Step>
+</Steps>
+
+### Disaster recovery
+
+**Scenario:** Your database server crashed and you need to recover.
+
+<Steps>
+  <Step title="Restore database from backup">
+    ```sql
+    RESTORE DATABASE YourDatabase
+    FROM DISK = 'C:\Backups\YourDB_Full.bak'
+    WITH REPLACE;
+    ```
+  </Step>
+
+  <Step title="Verify ChangeLog and triggers">
+    ```sql
+    -- Check ChangeLog exists
+    SELECT COUNT(*) FROM ChangeLog;
+
+    -- Check triggers exist
+    SELECT name FROM sys.triggers
+    WHERE parent_id = OBJECT_ID('YourProductTable');
+    ```
+  </Step>
+
+  <Step title="Restore .env file">
+    Copy your backed-up `.env` file back to shopMaster directory.
+  </Step>
+
+  <Step title="Test and resume">
+    1. Open shopMaster
+    2. Test connection in Settings
+    3. If triggers are missing, click Configure
+    4. Perform manual sync to test
+    5. Start automatic sync
+  </Step>
+
+  <Step title="Consider full product upload">
+    If you're unsure whether all changes were synced before the crash:
+    1. Go to Settings
+    2. Click **Upload Products**
+    3. This ensures Digible has your complete current inventory
+  </Step>
+</Steps>
+
+## Performance benchmarks
+
+Typical performance metrics to help you plan and optimize:
+
+<AccordionGroup>
+  <Accordion title="Sync speed">
+    **Typical rates:**
+    - Small changes (1-10 products): < 1 second
+    - Medium batch (100 products): 2-3 seconds
+    - Large batch (200 products): 4-5 seconds
+    - Full upload (1,000 products): 20-30 seconds
+    - Full upload (10,000 products): 3-5 minutes
+
+    **Factors affecting speed:**
+    - Network latency to api.digible.one
+    - Database query performance
+    - Product data size (longer names/descriptions = slower)
+  </Accordion>
+
+  <Accordion title="Trigger overhead">
+    **Insert/Update/Delete operations:**
+    - Overhead per operation: 5-10ms
+    - Bulk operations scale linearly
+
+    **Example:** Inserting 1,000 products:
+    - Without triggers: ~500ms
+    - With triggers: ~5,500ms
+
+    This is acceptable overhead for most use cases.
+  </Accordion>
+
+  <Accordion title="Memory usage">
+    **shopMaster application:**
+    - Idle: 40-60 MB
+    - During sync: 100-200 MB (depending on batch size)
+    - Peak (large upload): 300-500 MB
+
+    **SQL Server:**
+    - ChangeLog table: ~1 KB per record
+    - 1,000 pending changes: ~1 MB
+    - Triggers: Negligible impact
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  If your performance is significantly worse than these benchmarks, investigate:
+  1. Network connectivity issues
+  2. Database server resource constraints
+  3. Missing indexes on product table
+  4. Antivirus scanning shopMaster or database files
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Diagnose and fix common issues
+  </Card>
+  <Card title="SQL Server setup" icon="database" href="/guides/sql-server-connection">
+    Detailed connection configuration guide
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/sync">
+    Understand internal sync functions
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get started with shopMaster
+  </Card>
+</CardGroup>

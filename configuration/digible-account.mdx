@@ -1,0 +1,168 @@
+---
+title: Digible account
+description: Connect shopMaster to your Digible cloud account to sync products
+---
+
+shopMaster syncs your local product database with Digible's cloud platform. You need an active Digible account to use the sync features.
+
+## Connect your account
+
+Navigate to the **Settings** page to enter your Digible credentials.
+
+<Steps>
+  <Step title="Enter credentials">
+    Provide your Digible account information:
+
+    <ParamField path="Digible Email" type="string" required>
+      The email address associated with your Digible account
+    </ParamField>
+
+    <ParamField path="Digible Password" type="string" required>
+      Your Digible account password (displayed as asterisks for security)
+    </ParamField>
+
+    ```python
+    # From main.py:126-136
+    tk.Label(settings_frame, text="Digible Email:").grid(row=0, column=0, padx=10, pady=10, sticky="e")
+    digible_username_entry = tk.Entry(settings_frame, width=30, textvariable=digible_username_var)
+    
+    tk.Label(settings_frame, text="Digible Password:").grid(row=1, column=0, padx=10, pady=10, sticky="e")
+    digible_password_entry = tk.Entry(settings_frame, width=30, textvariable=digible_password_var, show="*")
+    ```
+  </Step>
+
+  <Step title="Test the connection">
+    Click **Test Connection** to verify your Digible credentials.
+
+    shopMaster sends a login request to the Digible API:
+
+    ```python
+    # From helper.py:207-227
+    url = 'https://api.digible.one/v1/business/account/auth/login'
+    
+    data = {
+        "email": username,
+        "password": password
+    }
+    
+    response = requests.post(url, json=data)
+    
+    if response.status_code == 200:
+        return_data = response.json()
+        access_token = return_data["data"]["token"]
+        message = return_data["message"]
+    ```
+
+    You'll see a message indicating whether the login succeeded or failed.
+  </Step>
+
+  <Step title="Save your credentials">
+    Click **Configure** to save your settings. shopMaster will:
+
+    - Authenticate with Digible and retrieve an access token
+    - Store the token in your `.env` file
+    - Prepare your database for syncing
+
+    ```python
+    # From main.py:213-221
+    token = digible_connect(digible_username, digible_password)["token"]
+    
+    with open(".env", "w") as env_file:
+        env_file.write(f"access_token={token}\n")
+    ```
+  </Step>
+</Steps>
+
+## Access token
+
+When you configure shopMaster, it retrieves a JWT (JSON Web Token) from Digible's API. This token authenticates all sync requests:
+
+```python
+# From helper.py:118-134 (uploadInsertedContent)
+url = 'https://api.digible.one/v1/business/stores/product/sync'
+token = os.getenv('access_token')
+
+headers = {
+    'x-access-token': token,
+    'Content-Type': 'application/json'
+}
+
+response = requests.post(url, data=product_json, headers=headers)
+```
+
+The token is stored in your `.env` file:
+
+```env
+access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+<Warning>
+  Your access token grants access to your Digible account. Keep your `.env` file secure and never share it.
+</Warning>
+
+## Token expiration
+
+Digible access tokens have an expiration time. shopMaster automatically checks token validity before syncing:
+
+```python
+# From helper.py:243-257
+def is_token_expired():
+    token = os.getenv("access_token")
+    try:
+        decoded_token = jwt.decode(token, options={"verify_signature": False})
+        exp_timestamp = decoded_token.get('exp')
+        current_timestamp = int(time.time())
+        
+        if exp_timestamp and current_timestamp >= exp_timestamp:
+            return True
+        else:
+            return False
+    except Exception as e:
+        return f"invalid token {e}"
+```
+
+### When your token expires
+
+If your token expires, shopMaster will:
+
+- Stop automatic syncing
+- Display "User Session expired please reconfigure" on manual sync attempts
+- Prevent product uploads
+
+<Info>
+  To renew your token, go to **Settings** and click **Configure** again. This re-authenticates with Digible and issues a new token.
+</Info>
+
+## API endpoints
+
+shopMaster uses these Digible API endpoints:
+
+| Endpoint | Purpose |
+|----------|--------|
+| `POST /v1/business/account/auth/login` | Authenticate and retrieve access token |
+| `POST /v1/business/stores/product/sync` | Upload new products |
+| `PUT /v1/business/stores/product/external/update` | Update existing products |
+
+All requests include your access token in the `x-access-token` header.
+
+## Troubleshooting
+
+### Login failed
+
+- Verify your email and password are correct
+- Check that you have an active Digible account
+- Ensure you have internet connectivity
+
+### Session expired errors
+
+- Your access token has expired
+- Return to **Settings** and click **Configure** to re-authenticate
+- shopMaster will issue a fresh token
+
+### Connection timeout
+
+- Check your internet connection
+- Verify you can access `https://api.digible.one` from your network
+- Check if a firewall is blocking outbound HTTPS requests
+
+See the [troubleshooting guide](/guides/troubleshooting) for more help.

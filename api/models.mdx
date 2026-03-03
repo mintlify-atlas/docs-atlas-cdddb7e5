@@ -1,0 +1,142 @@
+---
+title: Data models
+description: SQLAlchemy models for local product database schema
+---
+
+The models module defines the database schema for local product data using SQLAlchemy ORM.
+
+## LocalProduct
+
+SQLAlchemy model representing products in your local SQL Server database.
+
+```python
+from sqlalchemy.orm import Session
+from app.models import LocalProduct
+from app.helper import get_engine
+import os
+
+# Query products
+engine = get_engine(os.getenv("local_db_url"))
+with Session(engine) as session:
+    products = session.query(LocalProduct).filter(
+        LocalProduct.Status == 1
+    ).all()
+    
+    for product in products:
+        print(f"{product.ProductID}: {product.ProductName} - ${product.SellPrice}")
+```
+
+### Schema
+
+The LocalProduct model maps to your configured product table with the following columns:
+
+<ParamField path="ProductID" type="String(25)" required>
+  Primary key. The unique identifier for the product
+</ParamField>
+
+<ParamField path="ProductName" type="String(75)">
+  The name or description of the product
+</ParamField>
+
+<ParamField path="SellPrice" type="Numeric(18, 2)">
+  The selling price with up to 18 total digits and 2 decimal places
+</ParamField>
+
+<ParamField path="QrCode" type="String(100)">
+  QR code data associated with the product
+</ParamField>
+
+<ParamField path="Status" type="Integer">
+  Status flag for the product (e.g., 1 for active, 0 for inactive)
+</ParamField>
+
+<Note>
+  All columns except ProductID are nullable.
+</Note>
+
+### Dynamic table name
+
+The table name is read from the `local_table` environment variable:
+
+```python
+from app.models import LocalProduct
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+local_table = os.getenv("local_table")  # e.g., "Products"
+
+# The model automatically uses this table name
+print(LocalProduct.__tablename__)  # Outputs: Products
+```
+
+If `local_table` is not set or is empty, the `__tablename__` will be an empty string.
+
+### set_table_name
+
+Dynamically change the table name at runtime.
+
+```python
+from app.models import LocalProduct
+
+# Change to a different table
+LocalProduct.set_table_name("ArchiveProducts")
+
+print(LocalProduct.__tablename__)  # Outputs: ArchiveProducts
+```
+
+<ParamField path="table_name" type="str" required>
+  The new table name to use for this model
+</ParamField>
+
+## ChangeLog table
+
+While not defined as a SQLAlchemy model, shopMaster creates and uses a ChangeLog table to track product modifications:
+
+```sql
+CREATE TABLE ChangeLog (
+    LogID INT IDENTITY(1,1) PRIMARY KEY,
+    ChangeType NVARCHAR(10),
+    ProductID VARCHAR(25),
+    ProductName VARCHAR(75),
+    SellPrice NUMERIC(18, 2),
+    QrCode VARCHAR(100),
+    Status INT,
+    ChangeDateTime DATETIME DEFAULT GETDATE()
+);
+```
+
+### ChangeLog columns
+
+| Column | Type | Description |
+|--------|------|-------------|
+| LogID | INT | Auto-incrementing primary key |
+| ChangeType | NVARCHAR(10) | Type of change: INSERT, UPDATE, or DELETE |
+| ProductID | VARCHAR(25) | The product ID that changed |
+| ProductName | VARCHAR(75) | Snapshot of product name at time of change |
+| SellPrice | NUMERIC(18, 2) | Snapshot of sell price at time of change |
+| QrCode | VARCHAR(100) | Snapshot of QR code at time of change |
+| Status | INT | Snapshot of status at time of change |
+| ChangeDateTime | DATETIME | Timestamp when the change was logged |
+
+<Note>
+  The ChangeLog table is automatically created by the `create_change_log_and_triggers()` function.
+</Note>
+
+## Event tracking (legacy)
+
+The models module includes SQLAlchemy event listeners that were designed to track changes:
+
+```python
+def track_changes(mapper, connection, target):
+    print("Change detected in LocalProduct")
+    changed_rows.append(target)
+
+def attach_trackers(session):
+    event.listen(session, 'after_update', track_changes)
+    event.listen(session, 'after_insert', track_changes)
+```
+
+<Warning>
+  These event listeners are not actively used by the application. Change tracking is handled by SQL Server triggers instead. See the [Triggers](/api/triggers) documentation for the active implementation.
+</Warning>

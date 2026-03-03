@@ -1,0 +1,251 @@
+---
+title: Change tracking
+description: Database triggers automatically capture INSERT, UPDATE, and DELETE operations for synchronization
+---
+
+shopMaster uses SQL Server triggers to automatically track changes to your product table. This change tracking system enables synchronization without modifying your existing application code.
+
+## Overview
+
+When you configure shopMaster, it creates:
+
+1. A `ChangeLog` table to store all product changes
+2. Three triggers on your product table: `trgAfterInsert`, `trgAfterUpdate`, and `trgAfterDelete`
+3. Automatic logging of all INSERT, UPDATE, and DELETE operations
+
+<Note>
+Change tracking is configured automatically when you click the **Configure** button in Settings. The `create_change_log_and_triggers()` function (helper.py:30) handles the entire setup.
+</Note>
+
+## ChangeLog table structure
+
+The ChangeLog table is created with this schema (helper.py:41-51):
+
+```sql
+CREATE TABLE ChangeLog (
+    LogID INT IDENTITY(1,1) PRIMARY KEY,
+    ChangeType NVARCHAR(10),
+    ProductID VARCHAR(25),
+    ProductName VARCHAR(75),
+    SellPrice NUMERIC(18, 2),
+    QrCode VARCHAR(100),
+    Status INT,
+    ChangeDateTime DATETIME DEFAULT GETDATE()
+);
+```
+
+| Column | Purpose |
+|--------|--------|
+| LogID | Auto-incrementing primary key |
+| ChangeType | INSERT, UPDATE, or DELETE |
+| ProductID | The product's unique identifier |
+| ProductName | Product name at time of change |
+| SellPrice | Product price at time of change |
+| QrCode | Product QR code |
+| Status | Product status flag |
+| ChangeDateTime | Timestamp of the change |
+
+## Database triggers
+
+shopMaster installs three triggers on your local product table:
+
+<Tabs>
+  <Tab title="INSERT trigger">
+    The `trgAfterInsert` trigger (helper.py:56-69) fires when new products are added:
+
+    ```sql
+    CREATE OR ALTER TRIGGER trgAfterInsert ON {local_table}
+    AFTER INSERT
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+        IF NOT EXISTS (SELECT * FROM ChangeLog 
+                       WHERE ChangeType = 'INSERT' 
+                       AND ProductID IN (SELECT ProductID FROM inserted))
+        BEGIN
+            INSERT INTO ChangeLog (ChangeType, ProductID, ProductName, 
+                                   SellPrice, QrCode, Status)
+            SELECT 'INSERT', i.ProductID, i.ProductName, 
+                   i.SellPrice, i.QrCode, i.Status
+            FROM inserted i;
+        END
+    END;
+    ```
+
+    The trigger only logs the change if no existing INSERT record exists for that ProductID, preventing duplicates.
+  </Tab>
+  
+  <Tab title="UPDATE trigger">
+    The `trgAfterUpdate` trigger (helper.py:73-87) fires when products are modified:
+
+    ```sql
+    CREATE OR ALTER TRIGGER trgAfterUpdate ON {local_table}
+    AFTER UPDATE
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+        IF NOT EXISTS (SELECT * FROM ChangeLog 
+                       WHERE ChangeType = 'UPDATE' 
+                       AND ProductID IN (SELECT ProductID FROM inserted))
+        BEGIN
+            INSERT INTO ChangeLog (ChangeType, ProductID, ProductName, 
+                                   SellPrice, QrCode, Status)
+            SELECT 'UPDATE', i.ProductID, i.ProductName, 
+                   i.SellPrice, i.QrCode, i.Status
+            FROM inserted i;
+        END
+    END;
+    ```
+
+    Like the INSERT trigger, it prevents duplicate UPDATE records for the same ProductID.
+  </Tab>
+  
+  <Tab title="DELETE trigger">
+    The `trgAfterDelete` trigger (helper.py:91-105) fires when products are removed:
+
+    ```sql
+    CREATE OR ALTER TRIGGER trgAfterDelete ON {local_table}
+    AFTER DELETE
+    AS
+    BEGIN
+        SET NOCOUNT ON;
+        IF NOT EXISTS (SELECT * FROM ChangeLog 
+                       WHERE ChangeType = 'DELETE' 
+                       AND ProductID IN (SELECT ProductID FROM deleted))
+        BEGIN
+            INSERT INTO ChangeLog (ChangeType, ProductID, ProductName, 
+                                   SellPrice, QrCode, Status)
+            SELECT 'DELETE', d.ProductID, d.ProductName, 
+                   d.SellPrice, d.QrCode, d.Status
+            FROM deleted d;
+        END
+    END;
+    ```
+
+    <Warning>
+    DELETE operations are logged in the ChangeLog table but are NOT synced to Digible. Only INSERT and UPDATE changes are synchronized.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## How triggers capture changes
+
+SQL Server provides special tables during trigger execution:
+
+- **inserted**: Contains new/updated row data
+- **deleted**: Contains old/deleted row data
+
+The triggers use these tables to:
+
+1. Access the affected product data
+2. Check for duplicate log entries
+3. Insert change records into ChangeLog
+
+<Info>
+The `SET NOCOUNT ON` statement at the start of each trigger prevents row count messages from interfering with your application.
+</Info>
+
+## Configuration process
+
+When you configure shopMaster (main.py:227):
+
+<Steps>
+  <Step title="Validate connection">
+    shopMaster connects to your SQL Server database using the provided credentials.
+  </Step>
+  
+  <Step title="Create ChangeLog table">
+    The function checks if the ChangeLog table exists using `sysobjects`. If not, it creates the table (helper.py:38-52).
+  </Step>
+  
+  <Step title="Install INSERT trigger">
+    Uses `CREATE OR ALTER` to install or update `trgAfterInsert` (helper.py:56-70).
+  </Step>
+  
+  <Step title="Install UPDATE trigger">
+    Uses `CREATE OR ALTER` to install or update `trgAfterUpdate` (helper.py:73-88).
+  </Step>
+  
+  <Step title="Install DELETE trigger">
+    Uses `CREATE OR ALTER` to install or update `trgAfterDelete` (helper.py:91-106).
+  </Step>
+  
+  <Step title="Confirm success">
+    Returns "Configuration Successful" and displays a confirmation dialog (main.py:228).
+  </Step>
+</Steps>
+
+## Duplicate prevention
+
+Each trigger includes duplicate prevention logic:
+
+```sql
+IF NOT EXISTS (SELECT * FROM ChangeLog 
+               WHERE ChangeType = 'INSERT' 
+               AND ProductID IN (SELECT ProductID FROM inserted))
+```
+
+This ensures that:
+- Multiple changes to the same product don't create duplicate log entries
+- The ChangeLog remains clean and efficient
+- Sync operations don't send duplicate data
+
+<Note>
+Once a change is synced, the `sync_data()` function clears processed records from ChangeLog (helper.py:334), allowing new changes to the same product to be tracked.
+</Note>
+
+## Sync integration
+
+The sync process reads from the ChangeLog table:
+
+```python
+query = """
+SELECT * FROM ChangeLog 
+WHERE ChangeType IN ('INSERT', 'UPDATE')
+"""
+```
+
+This query (helper.py:308-311):
+- Fetches all pending INSERT and UPDATE changes
+- Ignores DELETE operations
+- Provides data for the sync workflow
+
+After processing, the sync clears the log:
+
+```python
+connection.execute(text("DELETE FROM ChangeLog WHERE ChangeType IN ('INSERT', 'UPDATE')"))
+```
+
+## Troubleshooting
+
+### Triggers not firing
+
+- Verify the triggers were created successfully during configuration
+- Check SQL Server permissions - the database user needs CREATE TRIGGER rights
+- Ensure triggers are enabled on the table
+
+### Duplicate entries in ChangeLog
+
+- This shouldn't happen due to duplicate prevention logic
+- If it occurs, reconfigure shopMaster to recreate the triggers
+
+### Changes not appearing in ChangeLog
+
+- Verify the triggers exist: `SELECT * FROM sys.triggers WHERE parent_id = OBJECT_ID('YourTableName')`
+- Check if the triggers are disabled
+- Ensure the product table name matches your configuration
+
+<Warning>
+Reconfiguring shopMaster will recreate all triggers using CREATE OR ALTER. This is safe and won't affect existing data, but any custom modifications to the triggers will be overwritten.
+</Warning>
+
+## Performance considerations
+
+The change tracking system is designed for efficiency:
+
+- Triggers execute immediately after each operation
+- Duplicate checks use indexed columns (ProductID)
+- ChangeLog is regularly cleared by sync operations
+- Minimal overhead on normal database operations
+
+Refer to helper.py:30 for the complete `create_change_log_and_triggers()` implementation.
